@@ -17,12 +17,14 @@
 	
 	Requirements
 	------------
+	Python 2.7
 	PIL Library : <http://www.pythonware.com/products/pil/>
+	ConfigObj : modified ConfigObj 4 <http://www.voidspace.org.uk/python/configobj.html>
 	
 	Licences
 	--------
 	New-BSD Licence, (c) 2010-2013, Pierre-Alain Dorange
-	See ReadMe.txt for data licence for supported servers
+	See ReadMe.txt for supported servers and thier respected licence and usage
 	
 	History
 	-------
@@ -33,8 +35,13 @@
 	0.4 enhance tiles server handling (march 2013)
 		+ debug some platform specific issues
 		+ add some CloudMade renders, Acetate and Google
+	0.5 add box parameter, reorganize code
+		add Nokia Maps + fix bing's quadkeys
 """
 
+__version__="0.5"
+
+# standard modules
 import math
 import os.path
 import urllib
@@ -42,27 +49,122 @@ import threading
 import sys
 import getopt
 import time
+
+# required modules
+from configobj import *		# read .INI file
+from PIL import Image		# Image manipulation library
+
+# local
 import config
-from PIL import Image
 
-__version__="0.4"
-
-default_location=(45.6918,-0.3277)		# (latitude, longitude)
-default_zoom=14
-default_xwidth=5
-default_ywidth=5
-default_server="mapnik"
-default_tile_size=256
-
+# globals
 kHTTP_User_Agent="bigmap_bot %s" % __version__
-    
-""" 
-	name, server base URL, min zoom, max zoom, coordonate system, copyright 
+
 """
-			
+	Utilities functions : compute some maths (tile coordinates to geographical latitude,longtitude...)
+"""
+
+def ll2tile((latitude,longitude),zoom):
+	""" 
+		convert a location (longitude, latitude) into a tile position (x,y), according to current zoom
+		formula from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Python
+	"""
+	lat_rad=math.radians(latitude)
+	n=2.0**zoom
+	xtile=int((longitude+180.0)/360.0*n+0.5)
+	ytile=int((1.0-math.log(math.tan(lat_rad)+(1/math.cos(lat_rad)))/math.pi)/2.0*n+0.5)
+	
+	return (xtile,ytile)
+
+def ll2xy((latitude,longitude),zoom):
+	""" 
+		convert a location (longitude, latitude) into a tile position (x,y), according to current zoom
+		same as ll2tile, but return a float coordinate
+		formula from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Python
+	"""
+	lat_rad=math.radians(latitude)
+	n=2.0**zoom
+	x=(longitude+180.0)/360.0*n
+	y=(1.0-math.log(math.tan(lat_rad)+(1.0/math.cos(lat_rad)))/math.pi)/2.0*n
+	return (x,y)
+	
+def tile2ll((x,y),zoom):
+	""" 
+		convert a tile coordinates (x,y) into a location (longitude, latitude), according to current zoom
+		formula from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Python
+	"""
+	""" (x,y) tile position converted into (long,lat) degree coordinates (according to actual zoom)
+		code from http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames """
+	n=2.0**zoom
+	lon_deg=x/n*360.0-180.0
+	lat_rad=math.atan(math.sinh(math.pi*(1-2*y/n)))
+	lat_deg=math.degrees(lat_rad)
+	return (lon_deg,lat_deg)
+	
+def tilexy2quadkey((tx,ty),zoom):
+	"""
+		convert standard tile coordinates and zoom into a quadkey (used by Bing Tile servers)
+		code from : http://www.web-maps.com/gisblog/?m=200903	
+	"""
+	quadkey=""
+	for i in range(zoom,0,-1):
+		digit=0
+		mask=1<<(i-1)
+		if (tx&mask)!=0:
+			digit+=1
+		if (ty&mask)!=0:
+			digit+=2
+		quadkey+=str(digit)
+
+	return quadkey
+    			
+"""
+	Class/objects
+"""
+class Coordinate():
+	def __init__(self,x,y):
+		self.x=x
+		self.y=y
+		
+	def __str__(self):
+		return "(%.4f,%.4f)" % (self.x,self.y)
+		
+	def convert2Tile(self,server,zoom):
+		lat_rad=math.radians(self.x)
+		n=2.0**zoom
+		x=(self.y+180.0)/360.0*n
+		y=(1.0-math.log(math.tan(lat_rad)+(1.0/math.cos(lat_rad)))/math.pi)/2.0*n
+		return (x,y)
+		
+class BoundingBox():
+	def __init__(self,loc0,loc1):
+		if loc0.x>loc1.x:
+			x0=loc1.x
+			x1=loc0.x
+		else:
+			x0=loc0.x
+			x1=loc1.x
+		if loc0.y>loc1.y:
+			y0=loc1.y
+			y1=loc0.y
+		else:
+			y0=loc0.y
+			y1=loc1.y
+		self.upleft=Coordinate(x0,y0)
+		self.downright=Coordinate(x1,y1)
+		
+	def __str__(self):
+		return "%s-%s" % (self.upleft,self.downright)
+		
+	def convert2Tile(self,server,zoom):
+		(x0,y0)=self.upleft.convert2Tile(server,zoom)
+		(x1,y1)=self.downright.convert2Tile(server,zoom)
+		return ((x0,y1),(x1,y0))
+		
 class TileServer():
 	"""
-		TileServer class : define de tile server and provide simple access to tiles
+		TileServer class : 
+		define de tile server and provide simple access to tiles
 		Tile Servers (or Slippy Map) use general convention, see : <http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames>
 	"""
 	def __init__(self,name):
@@ -70,24 +172,40 @@ class TileServer():
 		self.base_url=""
 		self.server_list=None
 		self.api_key=""
-		self.tile_size=default_tile_size
+		self.tile_size=config.default_tile_size
 		self.min_zoom=0
 		self.max_zoom=0
 		self.format="PNG"
+		self.extension="png"
+		self.size_x=config.default_tile_size
+		self.size_y=config.default_tile_size
 		self.tile_copyright=""
 		self.data_copyright=""
 		
-	def setServer(self,base_url,prefix=None):
+	def setServer(self,base_url,subdomain=None):
 		self.base_url=base_url
-		self.server_list=prefix
+		self.server_list=subdomain
 		self.current=0
 		
 	def setZoom(self,min,max):
 		self.min_zoom=min
 		self.max_zoom=max
 		
+	def setTileSize(self,sx,sy):
+		self.size_x=sx
+		self.size_y=sy
+		
 	def setAPI(self,key=""):
 		self.api_key=key
+		
+	def setFormat(self,fmt="PNG"):
+		self.format=fmt
+		if fmt=="PNG":
+			self.extension="png"
+		elif fmt=="JPEG":
+			self.extension="jpg"
+		elif fmt=="GIF":
+			self.extension="gif"
 		
 	def setCopyright(self,tile="",data=""):
 		self.tile_copyright=tile
@@ -96,21 +214,26 @@ class TileServer():
 	def getZoom(self):
 		return (min_zoom,max_zoom)
 	
-	def getUrl(self,x,y,z):
+	def getTileUrlFromXY(self,(tx,ty),zoom):
+		"""
+			return the tile url for this server according to tile coordinates and zoom value
+		"""
 		try:
+			coord=0
 			url=self.base_url
 			if url.find("[x]")>=0:
-				url=url.replace("[x]","%d" % x)
-			else:
-				raise
+				url=url.replace("[x]","%d" % tx)
+				coord+=1
 			if url.find("[y]")>=0:
-				url=url.replace("[y]","%d" % y)
-			else:
-				raise
+				url=url.replace("[y]","%d" % ty)
+				coord+=1
 			if url.find("[z]")>=0:
-				url=url.replace("[z]","%d" % z)
-			else:
-				raise
+				url=url.replace("[z]","%d" % zoom)
+				coord+=1
+			if url.find("[q]")>=0:	# compute bing quadkey
+				q=tilexy2quadkey((tx,ty),zoom)
+				url=url.replace("[q]",q)
+				coord+=3
 			if url.find("[s]")>=0:
 				if self.server_list:
 					url=url.replace("[s]",self.server_list[self.current])
@@ -121,79 +244,73 @@ class TileServer():
 					raise
 			if url.find("[a]")>=0:
 				url=url.replace("[a]",self.api_key)
+			if coord<3:
+				raise
 		except:
 				print "error, malformed server base url",self.base_url,sys.exc_info()
 		return url
-
-def ll2tile((latitude,longitude),zoom):
-	""" 
-		convert a location (longitude, latitude) into a tile position, according to current zoom
-		formula from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Python
-	"""
-	lat_rad=math.radians(latitude)
-	n=2.0**zoom
-	xtile=int((longitude+180.0)/360.0*n)
-	ytile=int((1.0-math.log(math.tan(lat_rad)+(1/math.cos(lat_rad)))/math.pi)/2.0*n)
-	
-	return (xtile,ytile)
 
 class LoadImageFromURL(threading.Thread):
 	"""
 		Thread for loading tile from a tile server
 		Can be used as an asynchronous thread (using start) or synchronous (using run)à
 	"""
-	def __init__(self,server,zoom,x,y,xw,yw):
+	def __init__(self,server,zoom,tileList):
 		threading.Thread.__init__(self)
 		self.server=server
 		self.zoom=zoom
-		self.x=x
-		self.y=y
-		self.xw=xw
-		self.yw=yw
+		self.tileList=tileList
 		self.done=[]
 		self.cache=True
+		self.cacheFolder=config.k_cache_folder
+		self.n=0
 		
 	def overCache(self,value):
 		self.cache=value
 		
 	def run(self):
+		self.n=0
 		try:
-			for xo in range(self.xw):
-				for yo in range(self.yw) :
-					(x,y)=(self.x+xo-self.xw/2,self.y+yo-self.yw/2)
-					fname="%s_%d_%d_%d.png" % (self.server.name,self.zoom,x,y)
-					fpath=os.path.join(config.k_cache_folder,fname)
-					if not os.path.isfile(fpath) or not self.cache:
-						tile_url=self.server.getUrl(x,y,self.zoom)
-						print tile_url
-						stream=urllib.urlopen(tile_url)
-						data=stream.read()
-						stream.close()
-						f=open(fpath,"wb")
-						f.write(data)
-						f.close()
-					self.done.append((x,y,fname))
+			for (x,y) in self.tileList:
+				fname="%s_%d_%d_%d.%s" % (self.server.name,self.zoom,x,y,self.server.extension)
+				fpath=os.path.join(self.cacheFolder,fname)
+				if not os.path.isfile(fpath) or not self.cache:
+					tile_url=self.server.getTileUrlFromXY((x,y),self.zoom)
+					stream=urllib.urlopen(tile_url)
+					data=stream.read()
+					stream.close()
+					f=open(fpath,"wb")
+					f.write(data)
+					f.close()
+					self.n=self.n+1
+				self.done.append((x,y,fname))
 		except:
-			print "error at tile (%d,%d), z=%d" % (self.x,self.y,self.zoom),sys.exc_info()
+			print "error at tile (%d,%d), z=%d" % (x,y,self.zoom),sys.exc_info()
 			
-def BuildBigMap(server,zoom,lx,ly,wx,wy):
+def BuildBigMap(server,zoom,(x0,y0),(x1,y1)):
 	""" 
 		assemble images into a big one using PIL Image classe 
 	"""
+	wx=x1-x0+1
+	wy=y1-y0+1
 	bigImage=Image.new("RGBA",(server.tile_size*wx,server.tile_size*wy),"white")
-	for xo in range(wx):
-		for yo in range(wy) :
+	for x in range(x0,x1+1):
+		for y in range(y0,y1+1) :
 			try:
-				(x,y)=(lx+xo-wx/2,ly+yo-wy/2)
-				box=(server.tile_size*xo,server.tile_size*yo)
-				fname="%s_%d_%d_%d.png" % (server.name,zoom,x,y)
+				fname="%s_%d_%d_%d.%s" % (server.name,zoom,x,y,server.extension)
 				fpath=os.path.join(config.k_cache_folder,fname)
 				im=Image.open(fpath)
+				box=(server.tile_size*(x-x0),server.tile_size*(y-y0))
 				bigImage.paste(im,box)
 			except:		
 				print "error on %s\n" % fpath,sys.exc_info()
-	fname="z%d_%dx%d_%s.png" % (zoom,wx,wy,server.name)
-	bigImage.save(fname,server.format)
+	fname="z%d_%dx%d_%s.%s" % (zoom,wx,wy,server.name,server.extension)
+	bigImage.info['source']=server.name
+	bigImage.info['location']=''
+	bigImage.info['data']=server.data_copyright
+	bigImage.info['map']=server.tile_copyright
+	bigImage.info['build']=kHTTP_User_Agent
+	bigImage.save(fname)
 	
 	return fname
 	
@@ -201,207 +318,77 @@ def CheckCache():
 	""" Just check is cache folder exist, create it if not """
 	if not os.path.exists(config.k_cache_folder):
 		os.makedirs(config.k_cache_folder)	
-	
-def InitServers():
+		
+def LoadServers():
 	"""
-		Prepare tiles server data
+		Load tiles server data from 'servers.ini' file
 		base url, contain several keys :
 			[x]	x coordinates
 			[y] y coordinates
 			[z] zoom
-			[s] sub-domain level (typically : a,b,c), empty list if none
+			[q] quadkey for bing server (x,y,z into one value)
+			[s] sub-domain level (typically : a,b,c or 0,1,2), empty list if sub-domain
 			[a] api-key (if required)
 	"""
 	list=[]
-	
-	s=TileServer("mapnik")
-	s.setServer("http://[s].tile.openstreetmap.org/[z]/[x]/[y].png",("a","b","c"))
-	s.setZoom(0,18)
-	s.setCopyright("(c) mapnik, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("transport")
-	s.setServer("http://[s].tile2.opencyclemap.org/transport/[z]/[x]/[y].png",("a","b","c"))
-	s.setZoom(0,18)
-	s.setCopyright("(c) transport by Andy Allan, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("cyclemap")
-	s.setServer("http://[s].tile.opencyclemap.org/cycle/[z]/[x]/[y].png",("a","b","c"))
-	s.setZoom(0,18)
-	s.setCopyright("(c) transport by Andy Allan, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("openmapquest")
-	s.setServer("http://otile[s].mqcdn.com/tiles/1.0.0/osm/[z]/[x]/[y].png",("1","2","3","4"))
-	s.setZoom(0,18)
-	s.setCopyright("(c) mapquest, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("openaerial")
-	s.setServer("http://otile[s].mqcdn.com/tiles/1.0.0/sat/[z]/[x]/[y].png",("1","2","3","4"))
-	s.setZoom(0,11)
-	s.setCopyright("(c) mapquest, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("stamen_watercolor")
-	s.setServer("http://[s].tile.stamen.com/watercolor/[z]/[x]/[y].png",("a","b","c","d"))
-	s.setZoom(0,18)
-	s.setCopyright("(c) watercolor by Stamen Design, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("stamen_toner")
-	s.setServer("http://[s].tile.stamen.com/toner/[z]/[x]/[y].png",("a","b","c","d"))
-	s.setZoom(0,18)
-	s.setCopyright("(c) toner by Stamen Design, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-		
-	s=TileServer("hikebike")
-	s.setServer("http://toolserver.org/tiles/hikebike/[z]/[x]/[y].png")
-	s.setZoom(0,18)
-	s.setCopyright("(c) hike'n'bike by xxxx, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("opvn")
-	s.setServer("http://tile.memomaps.de/tilegen/[z]/[x]/[y].png")
-	s.setZoom(0,18)
-	s.setCopyright("(c) opvn by memomaps, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("pistemap")
-	s.setServer("http://tiles.openpistemap.org/nocontours/[z]/[x]/[y].png")
-	s.setZoom(0,17)
-	s.setCopyright("(c) xxx, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-
-	s=TileServer("shade")
-	s.setServer("http://tiles2.openpistemap.org/landshaded/[z]/[x]/[y].png")
-	s.setZoom(0,17)
-	s.setCopyright("(c) xxx, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("hill")
-	s.setServer("http://toolserver.org/~cmarqu/hill/[z]/[x]/[y].png")
-	s.setZoom(0,16)
-	s.setCopyright("(c) xxx, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("acetate")
-	s.setServer("http://a[s].acetate.geoiq.com/tiles/acetate/[z]/[x]/[y].png",("0","1","2","3"))
-	s.setZoom(2,18)
-	s.setCopyright("(c) esri & stamen","(c) openstreetmap & natural earth")
-	list.append(s)
-	
-	s=TileServer("acetate_roads")
-	s.setServer("http://a[s].acetate.geoiq.com/tiles/acetate-roads/[z]/[x]/[y].png",("0","1","2","3"))
-	s.setZoom(2,18)
-	s.setCopyright("(c) esri & stamen","(c) openstreetmap & natural earth")
-	list.append(s)
-	
-	s=TileServer("acetate_background")
-	s.setServer("http://a[s].acetate.geoiq.com/tiles/acetate-bg/[z]/[x]/[y].png",("0","1","2","3"))
-	s.setZoom(2,18)
-	s.setCopyright("(c) esri & stamen","(c) openstreetmap & natural earth")
-	list.append(s)
-	
-	s=TileServer("bluemarble")
-	s.setServer("http://s3.amazonaws.com/com.modestmaps.bluemarble/[z]-r[y]-c[x].jpg")
-	s.setZoom(2,9)
-	s.setCopyright("public domain")
-	list.append(s)
-	
-	s=TileServer("cloudmade_standard")
-	s.setServer("http://[s].tile.cloudmade.com/[a]/1/256/[z]/[x]/[y].png",("a","b","c"))
-	s.setZoom(2,18)
-	s.setAPI(config.cloudmade_API)
-	s.setCopyright("(c) standard by CloudMade, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("cloudmade_fineline")
-	s.setServer("http://[s].tile.cloudmade.com/[a]/2/256/[z]/[x]/[y].png",("a","b","c"))
-	s.setZoom(2,18)
-	s.setAPI(config.cloudmade_API)
-	s.setCopyright("(c) standard by CloudMade, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("cloudmade_fresh")
-	s.setServer("http://[s].tile.cloudmade.com/[a]/997/256/[z]/[x]/[y].png",("a","b","c"))
-	s.setZoom(2,18)
-	s.setAPI(config.cloudmade_API)
-	s.setCopyright("(c) standard by CloudMade, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("cloudmade_tourism")
-	s.setServer("http://[s].tile.cloudmade.com/[a]/1155/256/[z]/[x]/[y].png",("a","b","c"))
-	s.setZoom(2,18)
-	s.setAPI(config.cloudmade_API)
-	s.setCopyright("(c) standard by CloudMade, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("cloudmade_thin")
-	s.setServer("http://[s].tile.cloudmade.com/[a]/1/256/[z]/[x]/[y].png",("a","b","c"))
-	s.setZoom(2,18)
-	s.setAPI(config.cloudmade_API)
-	s.setCopyright("(c) standard by CloudMade, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("cloudmade_thin")
-	s.setServer("http://[s].tile.cloudmade.com/[a]/1/256/[z]/[x]/[y].png",("a","b","c"))
-	s.setZoom(2,18)
-	s.setAPI(config.cloudmade_API)
-	s.setCopyright("(c) standard by CloudMade, licence CC-BY-SA","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("arcgis_topo")
-	s.setServer("http://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/[z]/[y]/[x].png")
-	s.setZoom(0,13)
-	s.setCopyright("(c) esri.com, licence CC-BY-SA-NC","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("arcgis_imagery")
-	s.setServer("http://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/[z]/[y]/[x].png")
-	s.setZoom(0,13)
-	s.setCopyright("(c) esri.com, licence CC-BY-SA-NC","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("arcgis_terrain")
-	s.setServer("http://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Reference_Overlay/MapServer/tile/[z]/[y]/[x].png")
-	s.setZoom(0,13)
-	s.setCopyright("(c) esri.com, licence CC-BY-SA-NC","(c) openstreetmap.org and contributors, licence ODbL")
-	list.append(s)
-	
-	s=TileServer("google_road")
-	s.setServer("http://mt[s].google.com/vt/x=[x]&y=[y]&z=[z]",("0","1","2","3"))
-	s.setZoom(2,20)
-	s.setCopyright("(c) google","(c) google")
-	list.append(s)
-	
-	s=TileServer("google_aerial")
-	s.setServer("http://khm[s].google.com/kh/v=45&x=[x]&y=[y]&z=[z]",("0","1","2","3"))
-	s.setZoom(2,18)
-	s.setCopyright("(c) google","(c) google")
-	list.append(s)
-	
-	s=TileServer("bing_road")
-	s.setServer("http://r[s].ortho.tiles.virtualearth.net/tiles/r[M].png?g=90&shading=hill",("0","1","2","3"))
-	s.setZoom(2,19)
-	s.setCopyright("(c) microsoft road","(c) microsoft road")
-	list.append(s)
-	
-	s=TileServer("mapbox_landsat")
-	s.setServer("http://a.tiles.mapbox.com/v3/examples.map-2k9d7u0c/[z]/[x]/[y].png")
-	s.setZoom(2,12)
-	s.setCopyright("(c) mapbox, landsat")
-	list.append(s)
-	
+	servers=ConfigObj("servers.ini")
+	for s in servers:
+		try:
+			item=servers[s]
+		except:
+			print "Error: Can't find",s
+			break
+		try:
+			url=item['url']
+		except:
+			print "Error: bad url for",s
+			break
+		try:
+			sd=item['subdomain']
+		except:
+			sd=None
+		try:
+			z=item.as_intList('zoom')
+		except:
+			print "Error: bad zoom (min,max) for",s
+			break
+		try:
+			sz=item.as_intList('size')
+		except:
+			sz=(config.default_tile_size,config.default_tile_size)
+		try:
+			dc=item['data']
+		except:
+			dc=""
+		try:
+			tc=item['tile']
+		except:
+			tc=""
+		try:
+			api=item['api']
+		except:
+			api=""
+		try:
+			fmt=item['format']
+		except:
+			fmt="PNG"
+		server=TileServer(s)
+		server.setServer(url,sd)
+		server.setZoom(z[0],z[1])
+		server.setCopyright(tc,dc)
+		server.setAPI(api)
+		server.setFormat(fmt)
+		server.setTileSize(sz[0],sz[1])
+		list.append(server)
 	return list
 	
 def Usage():
 	print
 	print "bigmap usage"
 	print "\t-h (--help) : help"
-	print "\t-l (--location) : set location (latitude, longitude)",
 	print "\t-z (--zoom) : set zoom",
+	print "\t-b (--box) : setbounding box (left,top,right,bottom)"
+	print "\t-l (--location) : set location (latitude, longitude)",
 	print "\t-t (--width) : set tile width"
 	print "\t-c (--cache) : override local tile cache"
 	print "\t-s (--server) : set server from :",
@@ -419,6 +406,99 @@ def ShowServers():
 		print "\tTile Licence:",s.tile_copyright
 		print "\tData Licence:",s.data_copyright
 	print
+	
+def Do(server_name,box,zoom,use_cache):
+	"""
+	"""
+
+	# find the right server parameter, according to "server name"
+	server=None
+	for s in tile_servers:
+		if server_name==s.name:
+			server=s
+			break
+	if server:
+		if zoom<server.min_zoom or zoom>server.max_zoom:
+			print "error : zoom %d is not available for %s" % (zoom,server.name)
+			print "\tzoom from %d to %d" % (server.min_zoom,server.max_zoom)
+			return
+		(tile0,tile1)=box.convert2Tile(server,zoom)
+		x0=int(tile0[0])
+		y0=int(tile0[1])
+		x1=int(tile1[0])
+		y1=int(tile1[1])
+		nt=(x1-x0+1)*(y1-y0+1)
+		print box
+		print tile0
+		print tile1
+		print "Get Tile(s) : (%d,%d)-(%d,%d)" % (x0,y0,x1,y1)
+		print "\%d tile(s) from %s" % (nt,server.name)
+		print "\tmap licence  :",server.tile_copyright
+		print "\tdata licence :",server.data_copyright
+		t0 = time.time()
+		
+		tlist=[]
+		n=0
+		if (config.k_multi_thread):
+			tileList1=[]
+			tileList2=[]
+			one=True
+			for x in range(x0,x1+1):
+				for y in range(y0,y1+1) :
+					if one:
+						tileList1.append((x,y))
+					else:
+						tileList2.append((x,y))
+					one=not one
+			# launch 2 threads to doawnload the tile(s) : asynchronous
+			print "\tstart 1st thread"
+			t=LoadImageFromURL(server,zoom,tileList1)
+			t.overCache(use_cache);
+			tlist.append(t)
+			t.start()
+			n=n+1
+			print "\tstart 2nd thread"
+			t=LoadImageFromURL(server,zoom,tileList2)
+			t.overCache(use_cache);
+			tlist.append(t)
+			t.start()
+			n=n+1
+			print "waiting for completion (%d threads, %d tiles)..." % (n,nt)
+		else:
+			tileList=[]
+			for x in range(x0,x1+1):
+				for y in range(y0,y1+1) :
+					tileList.append((x,y))		
+			# launch 1 thread to doawnload the tile(s) : synchronous
+			t=LoadImageFromURL(server,zoom,tileList)
+			t.overCache(use_cache);
+			print "waiting for completion (%d threads, %d tiles)..." % (1,nt)
+			t.run()
+				
+		# wait for threads completion
+		print len(tlist),"process"
+		while len(tlist)>0:
+			for t in tlist:
+				if not t.isAlive():
+					print t.server[0],"done"
+					tlist.remove(t)
+		
+		if config.k_chrono:
+			t1 = time.time() - t0
+			print "\tdownload time : %.1f seconds, %.1f ips" % (t1,nt/t1)
+			t0 = time.time()
+
+		# assemble tiles with PIL
+		print "assembling %d tile(s) from %s" % (nt,server.name)
+		fname=BuildBigMap(server,zoom,(x0,y0),(x1,y1))
+				
+		if config.k_chrono:
+			t1 = time.time() - t0
+			print "\tassembly time : %.1f seconds" % t1
+		print "Done, see file",fname
+	else:
+		print "no server known as",server_name
+		ShowServers()
 		
 def main(argv):
 	"""
@@ -428,17 +508,18 @@ def main(argv):
 		
 	# 1/ extract and parse command line arguments to determine parameters
 	try:
-		opts,args=getopt.getopt(argv,"hdcl:s:z:t:",["help","display","cache","location=","server=","zoom=","tile="])
+		opts,args=getopt.getopt(argv,"hdcb:l:s:z:t:",["help","display","cache","box=""location=","server=","zoom=","tile="])
 	except:
 		Usage()
 		sys.exit(2)
 		
-	location=default_location
-	zoom=default_zoom
-	xwidth=default_xwidth
-	ywidth=default_ywidth
-	server_name=default_server
+	centered=False
+	upleft=Coordinate(config.default_loc0[0],config.default_loc0[1])
+	downright=Coordinate(config.default_loc1[0],config.default_loc1[1])
+	zoom=config.default_zoom
+	server_name=config.default_server
 	use_cache=True
+	err=0
 	
 	for opt,arg in opts:
 		if opt in ("-c","--cache"):
@@ -446,102 +527,52 @@ def main(argv):
 		elif opt in ("-l","--location"):
 			try:
 				list=arg.split(',')
-				location=(float(list[0]),float(list[1]))
+				location=Coordinate(float(list[0]),float(list[1]))
+				centered=True
 			except:
 				print "error location must be set as 2 float values",sys.exc_info()
+				err+=1
 		elif opt in ("-s","--server"):
 			server_name=arg
 		elif opt in ("-z","--zoom"):
 			zoom=int(arg)
+		elif opt in ("-b","--box"):
+			try:
+				list=arg.split(',')
+				upleft=Coordinate(float(list[0]),float(list[1]))
+				downright=Coordinate(float(list[2]),float(list[3]))
+				centered=False
+			except:
+				print "error location must be set as 4 float values",sys.exc_info()
+				err+=1
 		elif opt in ("-t","--tile"):
 			try:
 				list=arg.split(',')
 				xwidth=int(list[0])
 				ywidth=int(list[1])
+				centered=True
 			except:
 				print "error width must be set as 2 int values",sys.exc_info()
+				err+=1
 		elif opt in ("-d","--display"):
 			ShowServers()
 		else:
 			Usage()
 			sys.exit(2)
 			
-	# 2/ do the job
-	CheckCache()
+	if err==0:	
+		# 2/ do the job
+		CheckCache()
 	
-	print "getting tile for (latitude:%.4f, longitude:%.4f) at zoom %d" % (location[0],location[1],zoom)
-
-	tile=ll2tile(location,zoom)
-
-	tlist=[]
-	n=0
-	nt=xwidth*ywidth
-	
-	# find the right server parameter, according to "server name"
-	server=None
-	for s in tile_servers:
-		if server_name==s.name:
-			server=s
-			break
-	if server:		
-		if zoom>=server.min_zoom and zoom<=server.max_zoom:
-			print "\tget %d tile(s) from %s" % (nt,server.name)
-			print "\tmap licence  :",server.tile_copyright
-			print "\tdata licence :",server.data_copyright
-			
-			if config.k_chrono:
-				t0 = time.time()
-				
-			if (config.k_multi_thread):
-				# launch 2 threads to doawnload the tile(s) : asynchronous
-				print "\tstart 1st thread"
-				t=LoadImageFromURL(server,zoom,tile[0],tile[1],xwidth,ywidth)
-				t.overCache(use_cache);
-				tlist.append(t)
-				t.start()
-				n=n+1
-				print "\tstart 2nd thread"
-				t=LoadImageFromURL(server,zoom,tile[0]+2,tile[1],xwidth,ywidth)
-				t.overCache(use_cache);
-				tlist.append(t)
-				t.start()
-				n=n+1
-				print "waiting for completion (%d threads, %d tiles)..." % (n,nt)
-			else:
-				# launch 1 thread to doawnload the tile(s) : synchronous
-				t=LoadImageFromURL(server,zoom,tile[0],tile[1],xwidth,ywidth)
-				t.overCache(use_cache);
-				print "waiting for completion (%d threads, %d tiles)..." % (n,nt)
-				t.run()
-			
-			# wait for threads completion
-			print len(tlist),"process"
-			while len(tlist)>0:
-				for t in tlist:
-					if not t.isAlive():
-						print t.server[0],"done"
-						tlist.remove(t)
-			
-			if config.k_chrono:
-				t1 = time.time() - t0
-				print "\tdownload time : %.1f seconds, %.1f fps" % (t1,nt/t1)
-				t0 = time.time()
-
-			# assemble tiles with PIL
-			print "assembling %d tile(s) from %s" % (nt,server.name)
-			fname=BuildBigMap(server,zoom,tile[0],tile[1],xwidth,ywidth)
-					
-			if config.k_chrono:
-				t1 = time.time() - t0
-				print "\tassembly time : %.1f seconds" % t1
-			print "Done, see file",fname
-		else:
-			print "zoom %d is not available for %s" % (zoom,server.name)
-			print "\tzoom from %d to %d" % (server.min_zoom,server.max_zoom)
-	else:
-		print "no server known as",server_name
-		ShowServers()
+		if (centered):
+			upleft=Coordinate(location[0]-xw,location[1]-yw)
+			downright=Coordinate(location[0]+xw,location[1]+yw)
+		
+		box=BoundingBox(upleft,downright)
+		print "getting tile for",box,"at zoom %d" % zoom
+		
+		Do(server_name,box,zoom,use_cache)
 		
 if __name__ == '__main__' :
-	tile_servers=InitServers()
+	tile_servers=LoadServers()
 	main(sys.argv[1:])
