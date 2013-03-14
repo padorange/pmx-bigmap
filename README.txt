@@ -14,11 +14,11 @@ usage
 python bigmap.py [parameters]
 	-h (--help)	: get help
 	-d (--display)  : display list of supported servers
-	-b (--box)	: define bounding box (latitude,longitude) (-b()
+	-b (--box)	: define bounding box (longitude,latitude,longitude,latitude) (-b()
 	-z (--zoom)	: define zoom level (-z14)
 	-s (--server)	: define tile server, default is mapnik (-sstamen_watercolor)
 	-t (--tile)	: define nb tile width and height to assemble (-w5,5)
-	-l (--location) : define location latitude,longitude (-l45.6945,-0.3304)
+	-l (--location) : define location longitude,latitude (-l-0.3304,45.6945)
 	-c (--cache)	: override local cache
 Two method can be used to define the map area :
 	* classic bound box (corner of a square express in latitude, longitude) + a zoom level : -b -z
@@ -26,13 +26,13 @@ Two method can be used to define the map area :
 	
 To define those parameters, the easy method is to use www.openstreetmap.org, drag the map and zoom according to what you want
 Click on "export" (up bar) adjust your view and get the 4 coordinates defining the bounding box :
-	ie : 	up-left corner : 45.7219,-0.3797
-		down-right corner : 45.648,-0.2784
+	ie : 	up-left corner : -0.3797,45.7219
+		down-right corner : -0.2784,45.648
 		choose a detail-zoom level (16 to 18 par street details, 12-15 for region detail, 8-10 for country detail)
-	ie : python bigmap.py -b45.7219,-0.3797,45.648,-0.2784 -z16
+	ie : python bigmap.py -b-0.3797,45.7219,-0.2784,45.648 -z16
 	
-Alternavely you can use a center location and choose a nb-tile width and height around
-	ie : python bigmap.py -b45.7219,-0.3797,45.648,-0.2784 -z16
+Alternavely you can use a center location and choose a nb-tile width and height around (buggy)
+	ie : python bigmap.py -l-0.3797,45.7219 -t5,5 -z16
 
 notes
 -----
@@ -65,15 +65,18 @@ Asynchronous Threads informations :
 Cache :
 	bigmap.py use a local cache to store individual tiles, is you need to refrech local data, simply trash to cache folder
 	-c option reload tiles
+	Cache folder can rapidly became big and occupy lot of space on your hard-drive
 
 Examples
 --------
-French atlantic coast near "La Rochelle" with openstreetmap default rendering (mapnik)
-	python bigmap.py -b46.434,-1.741,45.652,-0.478 -z10 -sopenmapquest
-Australia with Transport rendering by Andy Allan
-	python bigmap.py -b-8.5,111.4,-45,155.2 -z5 -stransport
-La Havane (Cuba) rendering by Stamen's Watercolor
-	python bigmap.py -b23.13963,-82.350715,23.136892,-82.347325 -z18 -sstamen_watercolor
+French atlantic coast near "La Rochelle" with openstreetmap, default rendering (mapnik)
+	python bigmap.py -b-1.741,46.434,-0.478,45.652 -z10 -sopenmapquest
+Public Transport near Edinburgh, rendered with transport
+	python bigmap.py -b-3.4197,55.9024,-3.2468,55.9761 -z14 -stransport
+Forbidden City (Beijing), rendered with Stamen's Watercolor
+	python bigmap.py -b116.3727,39.9025,116.4019,39.9346 -z16 -sstamen_watercolor
+Venise, rendered with acetate (Stamen & ESRI)
+	python bigmap.py -b12.32203,45.4249,12.34205,45.43717 -z15 -s
 
 Map Licences
 ------------

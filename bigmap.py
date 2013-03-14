@@ -37,9 +37,11 @@
 		+ add some CloudMade renders, Acetate and Google
 	0.5 add box parameter, reorganize code
 		add Nokia Maps + fix bing's quadkeys
+	0.6 revert coordinates to follow general rules for coordinates and bbox
+		add openmapsurfer renders
 """
 
-__version__="0.5"
+__version__="0.6"
 
 # standard modules
 import math
@@ -176,6 +178,7 @@ class TileServer():
 		self.min_zoom=0
 		self.max_zoom=0
 		self.format="PNG"
+		self.mode="RGB"
 		self.extension="png"
 		self.size_x=config.default_tile_size
 		self.size_y=config.default_tile_size
@@ -198,7 +201,7 @@ class TileServer():
 	def setAPI(self,key=""):
 		self.api_key=key
 		
-	def setFormat(self,fmt="PNG"):
+	def setFormat(self,fmt="PNG",mode="RGB"):
 		self.format=fmt
 		if fmt=="PNG":
 			self.extension="png"
@@ -279,6 +282,8 @@ class LoadImageFromURL(threading.Thread):
 					stream=urllib.urlopen(tile_url)
 					data=stream.read()
 					stream.close()
+#					im=Image.frombuffer(self.server.mode,(self.server.size_x,self.server.size_y),data,'PNG',self.server.mode,0,1)					
+#					im.save(fpath)
 					f=open(fpath,"wb")
 					f.write(data)
 					f.close()
@@ -372,12 +377,16 @@ def LoadServers():
 			fmt=item['format']
 		except:
 			fmt="PNG"
+		try:
+			mode=item['mode']
+		except:
+			mode="RGB"
 		server=TileServer(s)
 		server.setServer(url,sd)
 		server.setZoom(z[0],z[1])
 		server.setCopyright(tc,dc)
 		server.setAPI(api)
-		server.setFormat(fmt)
+		server.setFormat(fmt,mode)
 		server.setTileSize(sz[0],sz[1])
 		list.append(server)
 	return list
@@ -388,7 +397,7 @@ def Usage():
 	print "\t-h (--help) : help"
 	print "\t-z (--zoom) : set zoom",
 	print "\t-b (--box) : setbounding box (left,top,right,bottom)"
-	print "\t-l (--location) : set location (latitude, longitude)",
+	print "\t-l (--location) : set location (longitude,latitude)",
 	print "\t-t (--width) : set tile width"
 	print "\t-c (--cache) : override local tile cache"
 	print "\t-s (--server) : set server from :",
@@ -527,7 +536,7 @@ def main(argv):
 		elif opt in ("-l","--location"):
 			try:
 				list=arg.split(',')
-				location=Coordinate(float(list[0]),float(list[1]))
+				location=Coordinate(float(list[1]),float(list[0]))
 				centered=True
 			except:
 				print "error location must be set as 2 float values",sys.exc_info()
@@ -539,8 +548,8 @@ def main(argv):
 		elif opt in ("-b","--box"):
 			try:
 				list=arg.split(',')
-				upleft=Coordinate(float(list[0]),float(list[1]))
-				downright=Coordinate(float(list[2]),float(list[3]))
+				upleft=Coordinate(float(list[1]),float(list[0]))
+				downright=Coordinate(float(list[3]),float(list[2]))
 				centered=False
 			except:
 				print "error location must be set as 4 float values",sys.exc_info()
