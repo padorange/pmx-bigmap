@@ -5,7 +5,7 @@ __license__="New BSD"		# see https://en.wikipedia.org/wiki/BSD_licenses
 __copyright__="Copyright 2010-2016, Pierre-Alain Dorange"
 __author__="Pierre-Alain Dorange"
 __contact__="pdorange@mac.com"
-__version__="0.9"
+__version__="1.0"
 
 """
 bigmap.py
@@ -74,6 +74,7 @@ See ReadMe.txt for detailed instructions
 		update all TMS and add some new one (lonvia, openrailway, wikimedia...)
 		standardize coordinates : longitude (x) first then latitude (y) in all coordinates
 		enable asynchronous download : can be from 1.4 to 4.6 faster depending on request
+	1.0 small updates for pmx.py
 """
 
 # standard modules
@@ -129,14 +130,14 @@ def tilexy2quadkey((tx,ty),zoom):
 
 	return quadkey
 	
-def tilexy2ll((tx,ty),zoom):
+def tilexy2ll((x,y),zoom):
 	"""
 		convert standard tile coordinates and zoom into a longitude,latitude
 		code from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 	"""
 	n=2.0**zoom
-	lon_deg=360.0/n-180.0
-	lat_rad=math.atan(math.sinh(math.pi*(1-2*ty/2)))
+	lon_deg=x*360.0/n-180.0
+	lat_rad=math.atan(math.sinh(math.pi*(1-2*y/2)))
 	lat_deg=math.degrees(lat_rad)
 	return (lon_deg,lat_deg)
 	
@@ -161,7 +162,7 @@ class Coordinate():
 	"""
 		Coordinate : define a couple a value (longitude/latitude) to handle geographic coordinates
 		handle algebric operation  : + - * /
-		handle str conversion
+		handle repr/str conversion
 		
 		longitude : specify the east-west angular position (geographic coordinate) : -180° to +180°
 		latitude  : specify the north-south angular position (geographic coordinate) : -90° to +90°
@@ -170,12 +171,22 @@ class Coordinate():
 		self.lon=lon
 		self.lat=lat
 		
-	def __str__(self):
+	def __repr__(self):
 		return "(%.4f,%.4f)" % (self.lon,self.lat)
 		
+	def __str__(self):
+		if self.lon<0.0:
+			slon="%.4fW" % -self.lon
+		else:
+			slon="%.4fE" % self.lon
+		if self.lat<0.0:
+			slat="%.4fN" % -self.lat
+		else:
+			slat="%.4fS" % self.lat
+		return "(%s,%s)" % (slon,slat)
+		
 	def convert2Tile(self,zoom):
-		""" 
-			convert a location (longitude, latitude) into a tile position (x,y) according to current zoom
+		""" convert a location (longitude, latitude) into a tile position (x,y) according to current zoom
 			return a float coordinate
 			formula from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Python
 		"""
@@ -184,10 +195,18 @@ class Coordinate():
 		x=(self.lon+180.0)/360.0*n
 		y=(1.0-math.log(math.tan(lat_rad)+(1.0/math.cos(lat_rad)))/math.pi)/2.0*n
 		return (x,y)
-		
-	def getResolution(self,server,zoom):
+	
+	def convertFromTile(self,(x,y),zoom):
+		"""	convert standard (float) tile coordinates and zoom into a longitude,latitude
+			code from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 		"""
-			Get resolution (meters per tile)
+		n=2.0**zoom
+		self.lon=x*360.0/n-180.0
+		lat_rad=math.atan(math.sinh(math.pi*(1.0-2.0*y/n)))
+		self.lat=math.degrees(lat_rad)
+
+	def getResolution(self,server,zoom):
+		""" Get resolution (meters per tile)
 			formula from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Resolution_and_Scale
 		"""
 		lat_rad=math.radians(self.lat)
@@ -238,6 +257,9 @@ class BoundingBox():
 			lon1=loc1.lon
 		self.leftup=Coordinate(lon0,lat0)
 		self.rightdown=Coordinate(lon1,lat1)
+	
+	def __repr__(self):	
+		return self.leftup+"-"+self.rightdown
 		
 	def __str__(self):
 		return "%s-%s" % (self.leftup,self.rightdown)
@@ -248,8 +270,7 @@ class BoundingBox():
 		return ((lon0,lat1),(lon1,lat0))
 		
 class Cache():
-	"""
-		Cache : handle the local cache to avoid downloading manu times the same tile image
+	"""	Cache : handle the local cache to avoid downloading many times the same tile image
 		cache has a maximum size (max_size in bytes) and images cached has a max delay (validity)
 	"""
 	def __init__(self,folder,max_size,delay):
@@ -276,7 +297,19 @@ class Cache():
 					return True
 		return False
 		
+	def getSize(self):
+		tsize=0
+		for o in os.listdir(self.folder):
+			f=os.path.join(self.folder,o)
+			if os.path.isfile(f):
+				tsize+=os.path.getsize(f)
+		return tsize
+		
 	def clear(self):
+		""" Clean the tile cache : remove old tiles 
+				- tiles older than delay
+				- tiles oldest when total cache size exceed limit
+		"""
 		# remove old files (delay)
 		for o in os.listdir(self.folder):
 			f=os.path.join(self.folder,o)
@@ -295,15 +328,44 @@ class Cache():
 				s=os.path.getsize(f)
 				sz+=s
 				list.append((f,d,s))
-		if sz>self.max_size:
+		if sz>self.max_size:	# if total size greatest than limit, sort by date and remove oldest
+			print "Cache too big, need cleaning :",ByteSize(sz) 
 			list=sorted(list,key=lambda tup:tup[1])
 			i=0
 			while sz>self.max_size:
 				e=list[i]
 				os.remove(e[0])
 				sz-=e[2]
-				i+=1				
-		print "Cache size %.1f MB (max: %.1f MB)" % (1.0*sz/1048576.0, 1.0*self.max_size/1048576.0)
+				i+=1
+	
+	def __repr__(self):
+		return  "%s / %s" % (ByteSize(self.getSize()),ByteSize(self.max_size))
+		
+class ByteSize():
+	""" Convert byte size (integer) into a human readable size
+	"""
+	def __init__(self,size):
+		self.size=size
+	
+	def __repr__(self):
+		units=('B','KB','MB','GB')
+		s=self.size
+		for i in units:
+			if s<1024:
+				return "%d %s" % (s,i)
+			else:
+				s=s>>10
+		return "%d %s" % (s,units[2])
+		
+	def __str__(self):
+		units=('B','KB','MB','GB')
+		s=self.size
+		for i in units:
+			if s<1024:
+				return "%d %s" % (s,i)
+			else:
+				s=s>>10
+		return "%d %s" % (s,units[2])
 		
 class TileServer():
 	"""
@@ -366,7 +428,7 @@ class TileServer():
 		self.data_copyright=data
 	
 	def getZoom(self):
-		return (min_zoom,max_zoom)
+		return (self.min_zoom,self.max_zoom)
 		
 	def getCacheFName(self,(x,y),zoom,date=None):
 		""" return the cache filename for a tile (x,y,z) """
@@ -513,6 +575,9 @@ class BigMap():
 		(self.x0,self.y0)=(x0,y0)
 		(self.x1,self.y1)=(x1,y1)
 		(self.wx,self.wy)=(self.x1-self.x0+1,self.y1-self.y0+1)
+		
+	def getImg(self):
+		return self.bigImage
 			
 	def setMarker(self,list):
 		self.markers=list
@@ -531,7 +596,7 @@ class BigMap():
 					im=Image.open(fpath)
 				except:		
 					# no data, build an empty image (orange)
-					im=Image.new("RGBA",(self.server.tile_size,self.server.tile_size),"orange")
+					im=Image.new("RGBA",(self.server.tile_size,self.server.tile_size),"#f2c390")
 				dest_pos=(self.server.tile_size*(x-self.x0),self.server.tile_size*(y-self.y0))
 				self.bigImage.paste(im,dest_pos)
 		if len(self.markers)>0:
@@ -704,8 +769,9 @@ def LoadServers(filename):
 			try:
 				api_key=api_keys[k]
 			except:
-				print "Error: require an api key defined in api_key.ini for",s
-				break			
+				print "Error: require a valid api key defined in api_key.ini for",s
+				print "\t",k,"not found in",api_keys
+				continue			
 		except:
 			api_key=None
 		try:
@@ -946,6 +1012,7 @@ def main(argv):
 		cache=Cache(config.k_cache_folder,config.k_cache_max_size,config.k_cache_delay)
 		cache.setactive(use_cache)
 		cache.clear()
+		print cache
 
 		# 2.2/ lets go
 		if config.k_chrono:
@@ -1015,8 +1082,9 @@ def main(argv):
 				print "processing : %.1f seconds" % (t1)
 			t0 = time.time()
 		
+api_keys=LoadAPIKey("api_key.ini")
+tile_servers=LoadServers("servers.ini")
+locations=LoadLocation("locations.ini")
+
 if __name__ == '__main__' :
-	api_keys=LoadAPIKey("api_key.ini")
-	tile_servers=LoadServers("servers.ini")
-	locations=LoadLocation("locations.ini")
 	main(sys.argv[1:])

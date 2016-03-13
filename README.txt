@@ -1,3 +1,18 @@
+
+pmx.py
+---------------------------------------------------------------------------------------------
+New-BSD Licence, (c) 2010-2016, Pierre-Alain Dorange
+http://www.leretourdelautruche.com/pmwiki/index.php/Autruche/BigMap
+---------------------------------------------------------------------------------------------
+pmx.py is an application to explore map using online TMS services.
+It was build on bigmap.py library (see below). It use Tkinter cross-platform gui.
+
+-- usage ------------------------------------------------------------------------------------
+
+python pmx.py
+
+*********************************************************************************************
+
 bigmap.py
 ---------------------------------------------------------------------------------------------
 New-BSD Licence, (c) 2010-2016, Pierre-Alain Dorange
@@ -115,10 +130,10 @@ Colorful Grand Prismatic Spring (USA), satellite :
 To get actual complete list of tile and server available : python bigmap.py -dw
 
 Main providers (OSM data, free licence):
-	OSM : mapnik, fr, de, hot...
+	OSM : default, fr, de, hot...
 	Thunderforest : cyclemap, transport, landscape...
-	Stamen : nice graphical rendering : watercolor, toner (with many overlay)
-	Mapbox : require an API key, many nice maps from OSM : foursquare, pencil, pirates, edit…
+	Stamen : nice graphical rendering like watercolor, toner (with many overlay)
+	Mapbox : require an API key, many nice maps from OSM : foursquare, pencil, pirates, edit...
 	Acetate : route (and overlay)
 	OpenTopoMap : nice topo map
 	CartoDB : 
@@ -129,9 +144,9 @@ Not OSM data :
 	Google : usage restricted see Google licence
 	Bing : usage restricted see Microsoft licence
 	Nokia : usage restricted see Nokia licence
-	Yandex : experimental, usage restricted see Nokia licence
+	Yandex : experimental, usage restricted see Yandex licence
 Satellite :
-	Bluemarble : NASA satellite assembly of 2004 pictures (public domain)
+	Bluemarble : NASA satellite assembly of 2004 cloud-free pictures (public domain)
 	OpenMapQuest : satellite
 	MapBox : source NASA, DigitalGlobe and USGC
 	ArcGIS : source NASA, USGC
