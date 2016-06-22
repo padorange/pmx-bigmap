@@ -5,10 +5,16 @@ __license__="New BSD"		# see https://en.wikipedia.org/wiki/BSD_licenses
 __copyright__="Copyright 2010-2016, Pierre-Alain Dorange"
 __author__="Pierre-Alain Dorange"
 __contact__="pdorange@mac.com"
-__version__="1.0"
+__version__="1.0b1"
 
-"""
-bigmap.py
+# debug tags
+_debug=False			# debug mode (verbose)
+_debug_thread=False
+_debug_config=False
+_compute=False			# display computed tiles coordinates (conversions from longitude/latitude to pixels)
+_chrono=False
+
+""" bigmap.py
 ----------------------------------------------------------------------------------------
 Build a big image, by assembling small image from a Tile Map Server (TMS)
 Works like OpenLayers.js of Leaflet.js
@@ -50,13 +56,16 @@ See ReadMe.txt for detailed instructions
 	Latitude : https://en.wikipedia.org/wiki/Latitude
 	
 -- History -----------------------------------------------------------------------------
-	0.1 initial alpha (september 2010)
-	0.2 add openmapquest tiles (june 2011)
-		+ troubles with MacOS 10.6 and threads (crash) : used LoadImage in main thread (1 thread only, not optimized)
-	0.3 add stamen design maps : watercolor, terrain, toner (january 2013)
-	0.4 enhance tiles server handling (march 2013)
-		+ debug some platform specific issues
-		+ add some CloudMade renders, Acetate and Google
+	0.1 september 2010 : initial
+	0.2 june 2011 :
+			add openmapquest tiles
+			troubles with MacOS 10.6 and threads (crash) : used LoadImage in main thread (1 thread only, not optimized)
+	0.3 january 2013
+			add stamen design maps : watercolor, terrain, toner
+	0.4 march 2013
+		enhance tiles server handling
+		debug some platform specific issues
+		add some CloudMade renders, Acetate and Google
 	0.5 add box parameter, reorganize code
 		add Nokia Maps + fix bing's quadkeys
 	0.6 revert coordinates to follow general rules for coordinates and bbox
@@ -65,16 +74,24 @@ See ReadMe.txt for detailed instructions
 		add tile error handling for 404 errors
 		add mapbox, apple, map1 and openport_weather servers
 		cache better handling with maximum size
-	0.8 reorganize tile servers (server.ini) : february 2015
-		add api for mapbox (with API key) + new mapbox map
-		add api for EarthData (Nasa Landsat live) with handle for specifing date (-d)
-		removing cloudmade services (shutdown on april 2014)
-		add -n option and location.ini to reach specific locations
-	0.9 update mapbox API to new v4 TMS URL
-		update all TMS and add some new one (lonvia, openrailway, wikimedia...)
-		standardize coordinates : longitude (x) first then latitude (y) in all coordinates
-		enable asynchronous download : can be from 1.4 to 4.6 faster depending on request
-	1.0 small updates for pmx.py
+	0.8 february 2015 :
+			reorganize tile servers (server.ini)
+			add api for mapbox (with API key) + new mapbox map
+			add api for EarthData (Nasa Landsat live) with handle for specifing date (-d)
+			removing cloudmade services (shutdown on april 2014)
+			add -n option and location.ini to reach specific locations
+	0.9 february 2016
+			update mapbox API to new v4 TMS URL
+			update all TMS and add some new one (lonvia, openrailway, wikimedia...)
+			standardize coordinates : longitude (x) first then latitude (y) in all coordinates
+			enable asynchronous download : can be from 1.4 to 4.6 faster depending on request
+	1.0b1 june 2016
+			small updates for pmx.py
+			update ESRI TMS services
+			update EarthData (NASA) and better handle for date
+			add a memory cache to optimize reloading (required for pmx)
+			add a time shift for some earthdata (using day tag in servers.ini)
+			add {w} tag for wikimapia special tag
 """
 
 # standard modules
@@ -96,17 +113,12 @@ from PIL import Image,ImageDraw		# Image manipulation library
 # local
 import config
 
-# globals
-_debug=False			# debug mode (verbose)
-_compute=False			# display computed tiles coordinates (conversions from ongitude/latitude to pixels)
-
 """
 	Utilities functions : compute some maths (tile coordinates to geographical latitude,longtitude...)
 """
 	
 def dtile2ll((dx,dy),zoom):
-	""" 
-		convert a tile differentiate coordinates (dx,dy) into a differentite (longitude, latitude), according to current zoom
+	""" convert a tile differentiate coordinates (dx,dy) into a differentite (longitude, latitude), according to current zoom
 		formula from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 	"""
 	n=2.0**zoom
@@ -114,8 +126,7 @@ def dtile2ll((dx,dy),zoom):
 	return (lon_deg,lon_deg)
 	
 def tilexy2quadkey((tx,ty),zoom):
-	"""
-		convert standard tile coordinates and zoom into a quadkey (used by Bing Tile servers)
+	""" convert standard tile coordinates and zoom into a quadkey (used by Bing Tile servers)
 		code from : http://www.web-maps.com/gisblog/?m=200903	
 	"""
 	quadkey=""
@@ -131,8 +142,7 @@ def tilexy2quadkey((tx,ty),zoom):
 	return quadkey
 	
 def tilexy2ll((x,y),zoom):
-	"""
-		convert standard tile coordinates and zoom into a longitude,latitude
+	""" convert standard tile coordinates and zoom into a longitude,latitude
 		code from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 	"""
 	n=2.0**zoom
@@ -142,8 +152,7 @@ def tilexy2ll((x,y),zoom):
 	return (lon_deg,lat_deg)
 	
 def convertFromTile(x,y,zoom):
-	""" 
-		convert a tile position(x,y) into a location (longitude, latitude) according to current zoom
+	""" convert a tile position(x,y) into a location (longitude, latitude) according to current zoom
 		return a float coordinate
 		formula from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Python
 	"""
@@ -159,8 +168,7 @@ def convertFromTile(x,y,zoom):
 """
 
 class Coordinate():
-	"""
-		Coordinate : define a couple a value (longitude/latitude) to handle geographic coordinates
+	""" 	Coordinate : define a couple a value (longitude/latitude) to handle geographic coordinates
 		handle algebric operation  : + - * /
 		handle repr/str conversion
 		
@@ -197,7 +205,7 @@ class Coordinate():
 		return (x,y)
 	
 	def convertFromTile(self,(x,y),zoom):
-		"""	convert standard (float) tile coordinates and zoom into a longitude,latitude
+		""" convert standard (float) tile coordinates and zoom into a longitude,latitude
 			code from : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 		"""
 		n=2.0**zoom
@@ -238,8 +246,7 @@ class Coordinate():
 			return Coordinate(self.lat/other.lat,self.lon/other.lon)
 		
 class BoundingBox():
-	""" 
-		BoundingBox : handle a box define by geographical coordinates : up/left and bottom/right
+	""" BoundingBox : handle a box define by geographical coordinates : up/left and bottom/right
 		All coordinates are longitude/latitude
 	"""
 	def __init__(self,loc0,loc1):
@@ -368,8 +375,7 @@ class ByteSize():
 		return "%d %s" % (s,units[2])
 		
 class TileServer():
-	"""
-		TileServer class : 
+	""" TileServer class : 
 		define a tilemap server (TMS) and provide simple access to tiles
 		TMS (or Slippy Map) use general convention, see : <http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames>
 	"""
@@ -384,8 +390,8 @@ class TileServer():
 		self.api_key=""				# apikey (some service required one)
 		self.min_zoom=0				# min suported zoom
 		self.max_zoom=0				# max supported zoom
-		self.format="PNG"			# image format : default is PNG
-		self.mode="RGB"				# pixel definition : default is RGB
+		self.format="PNG"			# image format : PNG / JPEG / GIF
+		self.mode="RGB"				# pixel definition : RGB / RGBA
 		self.extension="png"		# file extension (according to image format)
 		self.tile_size=config.default_tile_size	# tile pixels size
 		self.size_x=config.default_tile_size	# tile pixels width
@@ -393,13 +399,17 @@ class TileServer():
 		self.tile_copyright=""		# tile copyright
 		self.data_copyright=""		# data copyright
 		self.handleDate=False		# can handle date (default is FALSE)
+		self.dateDelay=0
+		self_timeshift_value=[]
+		self_timeshift_string=[]
 		self.server_list=None		
 		self.current=0	
 		
-	def setServer(self,base_url,subdomain=None):
+	def setServer(self,base_url,subdomain=None,delay=0):
 		self.base_url=base_url
 		self.server_list=subdomain
 		self.handleDate="{d}" in base_url
+		self.dateDelay=delay
 		
 	def setZoom(self,min,max):
 		self.min_zoom=min
@@ -422,6 +432,10 @@ class TileServer():
 		elif fmt=="GIF":
 			self.extension="gif"
 		
+	def setTimeShift(self,ts_val,ts_str):
+		self_timeshift_value=ts_val
+		self_timeshift_string=ts_str
+		
 	def setCopyright(self,provider="",tile="",data=""):
 		self.provider=provider
 		self.tile_copyright=tile
@@ -431,24 +445,29 @@ class TileServer():
 		return (self.min_zoom,self.max_zoom)
 		
 	def getCacheFName(self,(x,y),zoom,date=None):
-		""" return the cache filename for a tile (x,y,z) """
-		if self.handleDate and date:
+		""" return the cache filename for a tile (x,y,z) 
+		"""
+		if self.handleDate:
+			if date==None:
+				date=time.strftime("%Y-%m-%d",time.localtime(time.time()-config.default_day_offset))
 			fname="%s_%d_%d_%d_%s.%s" % (self.name,zoom,x,y,date,self.extension)
 		else:
 			fname="%s_%d_%d_%d.%s" % (self.name,zoom,x,y,self.extension)
 		return fname
 	
 	def getTileUrlFromXY(self,(tx,ty),zoom,date=None):
-		"""
-			return the tile url for this server according to tile coordinates, zoom value
+		""" return the tile url for this server according to tile coordinates, zoom value
 			and specific format for this server using special tag :
 				{x} 					: longitude (in tile geometry, integer)
 				{y} 					: latitude (in tile geometry, integer)
 				{z} {zoom} 				: zoom (integer)
 				{q} 					: quadkey (microsoft encoding for x,y,z)
 				{s:...} {switch:...}	: server subdomains (if any, ie. {s:a,b,c})
+				{w}						: wikimapia NUM schema
+				{g}						: google NUM schema
 				{a} {api} 				: api key (if any)
 				{d} {date} 				: date (YYYY-MM-DD)
+				{t}						: time step, value in time_step tag, passed as date
 		"""
 		try:
 			coord=0
@@ -463,8 +482,19 @@ class TileServer():
 				url=url.replace("{z}","%d" % zoom)
 				url=url.replace("{zoom}","%d" % zoom)
 				coord+=1
-			if url.find("{d}")>=0 and date:
+			if url.find("{d}")>=0:
+				if date==None:
+					date=time.strftime("%Y-%m-%d",time.localtime(time.time()-config.default_day_offset))
+				if self.dateDelay!=0:
+					if _debug: print "date:",date
+					t=time.strptime(date,"%Y-%m-%d")
+					t=time.mktime(t)+24.0*self.dateDelay*3600.0
+					date=time.strftime("%Y-%m-%d",time.localtime(t))
+					if _debug: print "shifted:",date
 				url=url.replace("{d}","%s" % date)
+			if url.find("{t}")>=0:
+				if date!=None:
+					url=url.replace("{t}","%s" % date)
 			if url.find("{q}")>=0:	# compute bing quadkey
 				q=tilexy2quadkey((tx,ty),zoom)
 				url=url.replace("{q}",q)
@@ -477,10 +507,16 @@ class TileServer():
 						self.current=0
 				else:
 					raise
+			if url.find("{w}")>=0:
+				n=(tx%4)+4*(ty%4)
+				url=url.replace('{w}','%d' % n)
+			if url.find("{g}")>=0:
+				n=(tx+ty)%4
+				url=url.replace('{g}','%d' % n)
 			if url.find("{apikey}")>=0 or  url.find("{a}")>=0:
 				url=url.replace("{apikey}",self.api_key)
 				url=url.replace("{a}",self.api_key)
-			if coord<3:
+			if coord<3:	# test we got 3 coordinates params (x,y and z)
 				raise
 		except:
 			print "error, malformed server base url for %s\n%s\n%s" % (self.name,self.base_url,sys.exc_info())
@@ -503,23 +539,34 @@ class TileServer():
 		str=str+"\n\tTile Licence: %s" % self.tile_copyright
 		str=str+"\n\tData Licence: %s" % self.data_copyright
 		return str
-	
+
+class ThreadData():
+	def __init__(self,x,y,z,server,date=None,cache=None):
+		self.locx=x
+		self.locy=y
+		self.zoom=z
+		self.server=server
+		self.date=date
+		self.cache=cache
+		
 class LoadImagesFromURL(threading.Thread):
-	"""	Thread for loading a tile from a tile server
+	""" Thread for loading a tile from a tile server
 		Can be used as an asynchronous thread (using start) or synchronous (using run)
 		required :
 			queue : data to be processed as tuple : (x,y,zoom,server,date,cache)
 			result : return 0 if no error, 1 if error occured during loading
 	"""
-	def __init__(self,queue,result):
+	def __init__(self,work,result):
 		threading.Thread.__init__(self)
-		self.queue=queue
+		self.work=work
 		self.result=result
-		self.user_agent="%s/%s (urllib2/%s)" % (__file__,__version__,urllib2.__version__)
+		self.user_agent="%s/%s" % (__file__,__version__)
 			
 	def run(self):
-		while not self.queue.empty():
-			(x,y,zoom,server,date,cache)=self.queue.get()
+		while not self.work.empty():
+			(x,y,zoom,server,date,cache)=self.work.get()
+			if _debug_thread:
+				print "Thread, handle:",server.name,x,y,zoom
 			fname=server.getCacheFName((x,y),zoom,date)
 			fpath=cache.buildpath(fname)
 			if cache:
@@ -556,53 +603,90 @@ class LoadImagesFromURL(threading.Thread):
 					self.result.put(0)
 				else:
 					self.result.put(1)
-			self.queue.task_done()
+			self.work.task_done()
 
 class BigMap():
 	""" Assemble tile images into a big image 
 	"""
-	def __init__(self,server,zoom,date=None):
+	def __init__(self,server=None,zoom=0,date=None,overlay=False):
 		self.bigImage=None
 		self.server=server
 		self.zoom=zoom
+		self.date=date
 		self.filename=None
-		(self.x0,self.y0)=(0,0)
-		(self.x1,self.y1)=(0,0)
+		self.setSize((0,0),(0,0))
 		self.markers=[]
-		self.date=None
+		self.noData=None
+		self.tile_cache=[]
+		self.overlay=overlay
+	
+	def __repr__(self):
+		str=""
+		if self.server:
+			str="Server: %s" % self.server
+		else:
+			str="Server: None"
+		str=str+"\nZoom: %d" % self.zoom
+		str=str+"\nTile cache: %d\n" % len(self.tile_cache)
+		return str
+	
+	def setServer(self,server,zoom,date=None):
+		self.server=server
+		self.zoom=zoom
+		self.date=date
+		if self.overlay:
+			self.noData=Image.new("RGBA",(self.server.tile_size,self.server.tile_size),(242,228,214,128))
+		else:
+			self.noData=Image.new("RGBA",(self.server.tile_size,self.server.tile_size),(242,228,214,255))
 		
 	def setSize(self,(x0,y0),(x1,y1)):
 		(self.x0,self.y0)=(x0,y0)
 		(self.x1,self.y1)=(x1,y1)
 		(self.wx,self.wy)=(self.x1-self.x0+1,self.y1-self.y0+1)
+		if self.wx*self.wy!=0 and self.server:
+			self.bigImage=Image.new("RGBA",(self.server.tile_size*self.wx,self.server.tile_size*self.wy))
 		
 	def getImg(self):
 		return self.bigImage
-			
+	
 	def setMarker(self,list):
 		self.markers=list
 		
-	def build(self):
+	def build(self,background=None):
 		""" create a large white image to fit the required size
 			paste each individual tile image into it
 			add markers if any
 		"""
-		self.bigImage=Image.new("RGBA",(self.server.tile_size*self.wx,self.server.tile_size*self.wy),"white")
-		for x in range(self.x0,self.x1+1):
-			for y in range(self.y0,self.y1+1) :
-				fname=self.server.getCacheFName((x,y),self.zoom,self.date)
-				fpath=os.path.join(config.k_cache_folder,fname)
-				try:
-					im=Image.open(fpath)
-				except:		
-					# no data, build an empty image (orange)
-					im=Image.new("RGBA",(self.server.tile_size,self.server.tile_size),"#f2c390")
-				dest_pos=(self.server.tile_size*(x-self.x0),self.server.tile_size*(y-self.y0))
-				self.bigImage.paste(im,dest_pos)
-		if len(self.markers)>0:
-			imd=ImageDraw.Draw(self.bigImage)
-			for (mx,my,color,size) in self.markers:
-				imd.ellipse([my-size,mx-size,my+size,mx+size],fill=color)
+		if _chrono: 
+			t=time.clock()
+			self.chrono=0.0
+		if self.bigImage:
+			for x in range(self.x0,self.x1+1):
+				for y in range(self.y0,self.y1+1) :
+					fname=self.server.getCacheFName((x,y),self.zoom,self.date)
+					im=None
+					for (tname,timg) in self.tile_cache:
+						if tname==fname:
+							im=timg
+							break
+					if not im:
+						fpath=os.path.join(config.cachePath,fname)
+						try:
+							im=Image.open(fpath)
+							self.tile_cache.append((fname,im))
+							if len(self.tile_cache)>config.mem_cache:
+								self.tile_cache.remove()
+						except:		
+							# no data, build an empty image (orange)
+							if not self.overlay: im=self.noData
+					if im:
+						dest_pos=(self.server.tile_size*(x-self.x0),self.server.tile_size*(y-self.y0))
+						self.bigImage.paste(im,dest_pos)
+			if len(self.markers)>0:
+				imd=ImageDraw.Draw(self.bigImage)
+				for (mx,my,color,size) in self.markers:
+					imd.ellipse([my-size,mx-size,my+size,mx+size],fill=color)
+		if _chrono: self.chrono=time.clock()-t
 	
 	def save(self,filename=None):
 		if self.bigImage:
@@ -629,9 +713,10 @@ class BigMap():
 			return None
 	
 def LoadAPIKey(filename):
+	""" Load API Key(s) and return a dictionnary for them
 	"""
-		Load API Key(s) and return a dictionnary for them
-	"""
+	if _debug_config:
+		print "loading",filename
 	dict={}
 	try:
 		keys=ConfigObj(filename)
@@ -648,18 +733,21 @@ def LoadAPIKey(filename):
 				break
 			dict[k]=api
 	except:
+		print "loading",filename,"error"
+		print sys.exc_info()
 		dict={}
 	return dict
 
 def LoadLocation(filename):
-	"""
-		Load Location and return a dictionnary for them
+	""" Load Location and return a dictionnary for them
 		keys :
 			box		box defining the area : 2 couples longitude/latitude
 			zoom	zoom (option)
 			name	name of the location (option)
 			server	tile server (option)
 	"""
+	if _debug_config:
+		print "loading",filename
 	dict={}
 	try:
 		keys=ConfigObj(filename)
@@ -698,8 +786,7 @@ def LoadLocation(filename):
 	return dict
 				
 def LoadServers(filename):
-	"""
-		Load tiles server data from 'servers.ini' file, using keyword to get data :
+	""" Load tiles server data from 'servers.ini' file, using keyword to get data :
 			url (string) : the url syntax, see keys below for Base-URL
 			zoom (integer list) : integer representing zoom min and max available for the map
 		optionnal keys :
@@ -714,93 +801,115 @@ def LoadServers(filename):
 			type (string) : 'map' or 'overlay'
 			data (string) : copyright string for the data of the map
 			tile (string) : copyright string for the map design 
-			api (string) : the API user key for protected services	
+			api (string) : the API user key for protected services
+			delay (integer) : time shit (in days)
+			time_step (string list) : value for alternative subfolder in url (replace in {t})
+			time_step_str (string list) : human readable value for time_step list
 
 		base url, contain several keys, see : TileServer.getTileUrlFromXY() for details
 	"""
+	if _debug_config:
+		print "loading",filename
 	list=[]
-	servers=ConfigObj(filename)
-	for s in servers:
-		try:
-			item=servers[s]
-		except:
-			print "Error: Can't find",s
-			break
-		try:
-			url=item['url']
-		except:
-			print "Error: bad url for",s
-			break
-		try:
-			sub_domain=item['subdomain']
-		except:
-			sub_domain=None
-		try:
-			zoom=item.as_intList('zoom')
-		except:
-			print "Error: bad zoom (min,max) for",s
-			break
-		try:
-			desc=item['desc']
-		except:
-			desc=""
-		try:
-			familly=item['familly']
-		except:
-			familly=""
-		try:
-			type=item['type']
-		except:
-			type="map"
-		try:
-			service=item['service']
-		except:
-			service=""
-		try:
-			data_copyright=item['data']
-		except:
-			data_copyright=""
-		try:
-			tile_copyright=item['tile']
-		except:
-			tile_copyright=""
-		try:
-			k=item['api']
+	try:
+		servers=ConfigObj(filename)
+		for s in servers:
 			try:
-				api_key=api_keys[k]
+				item=servers[s]
 			except:
-				print "Error: require a valid api key defined in api_key.ini for",s
-				print "\t",k,"not found in",api_keys
-				continue			
-		except:
-			api_key=None
-		try:
-			format=item['format']
-		except:
-			format="PNG"
-		try:
-			mode=item['mode']
-		except:
-			mode="RGB"
-		try:
-			size=item.as_intList('size')
-		except:
-			size=(config.default_tile_size,config.default_tile_size)
-		server=TileServer(s,desc,familly,type)
-		server.setServer(url,sub_domain)
-		server.setZoom(zoom[0],zoom[1])
-		server.setCopyright(service,tile_copyright,data_copyright)
-		server.setAPI(api_key)
-		server.setFormat(format,mode)
-		server.setTileSize(size[0],size[1])
-		list.append(server)
-		
+				print "Error: Can't find",s
+				break
+			try:
+				url=item['url']
+			except:
+				print "Error: bad url for",s
+				break
+			try:
+				sub_domain=item['subdomain']
+			except:
+				sub_domain=None
+			try:
+				zoom=item.as_intList('zoom')
+			except:
+				print "Error: bad zoom (min,max) for",s
+				break
+			try:
+				desc=item['desc']
+			except:
+				desc=""
+			try:
+				familly=item['familly']
+			except:
+				familly=""
+			try:
+				type=item['type']
+			except:
+				type="map"
+			try:
+				service=item['service']
+			except:
+				service=""
+			try:
+				delay=int(item['day'])
+			except:
+				delay=0
+			try:
+				ts_value=item['time_step']
+			except:
+				ts_value=[]
+			try:
+				ts_string=item['time_step_str']
+			except:
+				ts_string=[]
+			try:
+				data_copyright=item['data']
+			except:
+				data_copyright=""
+			try:
+				tile_copyright=item['tile']
+			except:
+				tile_copyright=""
+			try:
+				k=item['api']
+				try:
+					api_key=api_keys[k]
+				except:
+					print "Error: require a valid api key defined in api_key.ini for",s
+					print "\t",k,"not found in",api_keys
+					continue			
+			except:
+				api_key=None
+			try:
+				format=item['format']
+			except:
+				format="PNG"
+			try:
+				mode=item['mode']
+			except:
+				mode="RGB"
+			try:
+				size=item.as_intList('size')
+			except:
+				size=(config.default_tile_size,config.default_tile_size)
+			server=TileServer(s,desc,familly,type)
+			server.setServer(url,sub_domain,delay)
+			server.setZoom(zoom[0],zoom[1])
+			server.setCopyright(service,tile_copyright,data_copyright)
+			server.setAPI(api_key)
+			server.setFormat(format,mode)
+			server.setTileSize(size[0],size[1])
+			server.setTimeShift(ts_value,ts_string)
+			list.append(server)
+	except:
+		print "loading",filename,"error"
+		print sys.exc_info()
+		list=[]
+			
 	list.sort(key=lambda x : x.name)
 	return list
 	
 def Usage():
-	"""
-		Display usage for the command (syntax and minimum help)
+	""" Display usage for the command (syntax and minimum help)
 	"""
 	print
 	print "%s usage" % __file__
@@ -886,7 +995,7 @@ def Do(server,box,zoom,cache,mlist=[],date=None,filename=None):
 		#fname=BuildBigMap(server,zoom,(x0,y0),(x1,y1),mlist,date,filename)
 		print "\tFile:",fname
 	else:
-		print "%d errors, too manay errors : no map generated" % t.error
+		print "%d errors, too manay errors : no map generated" % error
 		
 	# always show credits and licences
 	server.show_licence()
@@ -911,7 +1020,7 @@ def main(argv):
 	location=(upleft+downright)/2
 	zoom=config.default_zoom
 	(xwidth,ywidth)=(100.0,100.0)
-	date=time.strftime("%Y-%m-%d",time.localtime(time.time()))	# today/now
+	date=time.strftime("%Y-%m-%d",time.localtime(time.time()-config.default_day_offset))	# the prevous day
 	server_names=(config.default_server,)
 	use_cache=True
 	test=False
@@ -1009,7 +1118,7 @@ def main(argv):
 	# 2/ do the job
 	if err==0:	
 		# 2.1/ Check/Create cache
-		cache=Cache(config.k_cache_folder,config.k_cache_max_size,config.k_cache_delay)
+		cache=Cache(config.cachePath,config.k_cache_max_size,config.k_cache_delay)
 		cache.setactive(use_cache)
 		cache.clear()
 		print cache
@@ -1081,10 +1190,10 @@ def main(argv):
 			if config.k_chrono:
 				print "processing : %.1f seconds" % (t1)
 			t0 = time.time()
-		
-api_keys=LoadAPIKey("api_key.ini")
-tile_servers=LoadServers("servers.ini")
-locations=LoadLocation("locations.ini")
+
+api_keys=LoadAPIKey(config.api_keys_path)
+tile_servers=LoadServers(config.tile_servers_path)
+locations=LoadLocation(config.locations_path)
 
 if __name__ == '__main__' :
 	main(sys.argv[1:])

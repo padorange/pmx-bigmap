@@ -5,7 +5,8 @@ New-BSD Licence, (c) 2010-2016, Pierre-Alain Dorange
 http://www.leretourdelautruche.com/pmwiki/index.php/Autruche/BigMap
 ---------------------------------------------------------------------------------------------
 pmx.py is an application to explore map using online TMS services.
-It was build on bigmap.py library (see below). It use Tkinter cross-platform gui.
+It was build on bigmap.py library (see below). 
+It use Tkinter cross-platform for GUI and PIL/Pillow for image handling.
 
 -- usage ------------------------------------------------------------------------------------
 
@@ -26,8 +27,8 @@ Assemble tiles with PIL/Pillow library (separate install)
 Supported TMS are describe into servers.ini file (read thanks to ConfigObj).
 
 bigmap.py require :
-	Python 2.5.x
-	PIL library for Python
+	Python 2.5.x / 2.7.x
+	PIL (or Pillow) library for Python
 	ConfigObj (included)
 
 Read carefully licences and notes before using, not all maps have the same licence and usage policy.
@@ -125,7 +126,7 @@ Angkor Wat Temple (Cambodia), rendered with Pencil (from mapbox)
 Colorful Grand Prismatic Spring (USA), satellite :
 	python bigmap.py -ncolorful
 
--- Tile Servers ----------------------------------------------------------------------------
+-- Tile Servers Supported -------------------------------------------------------------------------
 
 To get actual complete list of tile and server available : python bigmap.py -dw
 
@@ -161,4 +162,4 @@ Special Data :
 
 -- History --------------------------------------------------------------------------------
 
-see bigmap.py header for a version history
+see pmx.py and bigmap.py header for a version history
