@@ -19,8 +19,9 @@ _chrono=False
 Build a big image, by assembling small image from a Tile Map Server (TMS)
 Works like OpenLayers.js of Leaflet.js
 
+Tiles (small image from TMS) are first download from TMS and store in a local cache
+Then tiles are assembled into a big composite image.
 Download can be synchrnous or asynchronous (faster)
-Tiles are assemble using PIL library, tiles are stored into a local cache to not overload TMS
 	
 bigmap main purpose is to help users creating big image from OSM map data to print (very) large maps
 read carefully licences and notes before using, not all maps have same licence and usage policy
@@ -30,6 +31,8 @@ Some TMS require an API key (ie. MapBox),
 		
 usage: python bigmap.py -h
 supported TMS : python bigmap.py -d
+
+bigmap.py is also used by pmx.py software (a map displayer with a tkinter GUI)
 
 See ReadMe.txt for detailed instructions
 	
@@ -92,6 +95,8 @@ See ReadMe.txt for detailed instructions
 			add a memory cache to optimize reloading (required for pmx)
 			add a time shift for some earthdata (using day tag in servers.ini)
 			add {w} tag for wikimapia special tag
+			add error images for tiling
+			add timeshift handling (for openweathermap)
 """
 
 # standard modules
@@ -108,13 +113,13 @@ urllib2.install_opener(urllib2.build_opener())		# just to disable a bug in MoxOS
 
 # required non-standard modules
 from configobj import *				# read .INI file
-from PIL import Image,ImageDraw		# Image manipulation library
+from PIL import Image,ImageDraw,PngImagePlugin		# Image manipulation library
 
 # local
 import config
 
-"""
-	Utilities functions : compute some maths (tile coordinates to geographical latitude,longtitude...)
+""" Utilities functions : 
+	compute some maths (tile coordinates to geographical latitude,longtitude...)
 """
 	
 def dtile2ll((dx,dy),zoom):
@@ -399,9 +404,11 @@ class TileServer():
 		self.tile_copyright=""		# tile copyright
 		self.data_copyright=""		# data copyright
 		self.handleDate=False		# can handle date (default is FALSE)
+		self.handleTimeShift=False		# can handle timeshift (default is FALSE)
 		self.dateDelay=0
-		self_timeshift_value=[]
-		self_timeshift_string=[]
+		self.timeshift=0
+		self.timeshift_value=[]
+		self.timeshift_string=[]
 		self.server_list=None		
 		self.current=0	
 		
@@ -409,6 +416,7 @@ class TileServer():
 		self.base_url=base_url
 		self.server_list=subdomain
 		self.handleDate="{d}" in base_url
+		self.handleTimeShift="{t}" in base_url
 		self.dateDelay=delay
 		
 	def setZoom(self,min,max):
@@ -433,8 +441,8 @@ class TileServer():
 			self.extension="gif"
 		
 	def setTimeShift(self,ts_val,ts_str):
-		self_timeshift_value=ts_val
-		self_timeshift_string=ts_str
+		self.timeshift_value=ts_val
+		self.timeshift_string=ts_str
 		
 	def setCopyright(self,provider="",tile="",data=""):
 		self.provider=provider
@@ -444,18 +452,22 @@ class TileServer():
 	def getZoom(self):
 		return (self.min_zoom,self.max_zoom)
 		
-	def getCacheFName(self,(x,y),zoom,date=None):
+	def getCacheFName(self,(x,y),zoom,date=None,timeshift=None):
 		""" return the cache filename for a tile (x,y,z) 
 		"""
 		if self.handleDate:
 			if date==None:
 				date=time.strftime("%Y-%m-%d",time.localtime(time.time()-config.default_day_offset))
 			fname="%s_%d_%d_%d_%s.%s" % (self.name,zoom,x,y,date,self.extension)
+		elif self.handleTimeShift:
+			if timeshift==None:
+				timeshift=0
+			fname="%s_%d_%d_%d_%s.%s" % (self.name,zoom,x,y,timeshift,self.extension)
 		else:
 			fname="%s_%d_%d_%d.%s" % (self.name,zoom,x,y,self.extension)
 		return fname
 	
-	def getTileUrlFromXY(self,(tx,ty),zoom,date=None):
+	def getTileUrlFromXY(self,(tx,ty),zoom,date=None,timeshift=None):
 		""" return the tile url for this server according to tile coordinates, zoom value
 			and specific format for this server using special tag :
 				{x} 					: longitude (in tile geometry, integer)
@@ -493,8 +505,9 @@ class TileServer():
 					if _debug: print "shifted:",date
 				url=url.replace("{d}","%s" % date)
 			if url.find("{t}")>=0:
-				if date!=None:
-					url=url.replace("{t}","%s" % date)
+				if timeshift==None:
+					timeshift=0
+				url=url.replace("{t}","%s" % self.timeshift_value[timeshift])
 			if url.find("{q}")>=0:	# compute bing quadkey
 				q=tilexy2quadkey((tx,ty),zoom)
 				url=url.replace("{q}",q)
@@ -556,67 +569,87 @@ class LoadImagesFromURL(threading.Thread):
 			queue : data to be processed as tuple : (x,y,zoom,server,date,cache)
 			result : return 0 if no error, 1 if error occured during loading
 	"""
-	def __init__(self,work,result):
+	def __init__(self,work,result,errorImage=None):
 		threading.Thread.__init__(self)
 		self.work=work
 		self.result=result
+		self.errorImage=errorImage
 		self.user_agent="%s/%s" % (__file__,__version__)
 			
 	def run(self):
 		while not self.work.empty():
-			(x,y,zoom,server,date,cache)=self.work.get()
+			(x,y,zoom,server,date,timeshift,cache)=self.work.get()
 			if _debug_thread:
 				print "Thread, handle:",server.name,x,y,zoom
-			fname=server.getCacheFName((x,y),zoom,date)
-			fpath=cache.buildpath(fname)
-			if cache:
-				load=not cache.incache(fpath)	# load if not in cache
-			else:
-				load=True
-			if load:
-				data=None
-				tile_url=server.getTileUrlFromXY((x,y),zoom,date)
-				headers={'User-Agent':self.user_agent}
-				request=urllib2.Request(tile_url,None,headers)
-				try:
-					socket.setdefaulttimeout(config.k_server_timeout)
-					stream=urllib2.urlopen(tile_url)
-					header=stream.info()
-					content=header.getheaders("Content-Type")
-					if len(content)==0 or "text/" in content[0]:
-						data=None
-						if _debug:
-							print "error for %s\n%s" % (tile_url,content)
-					else:
-						data=stream.read()
-					stream.close()
-				except urllib2.URLError,e:
-					print "URLError:",e,"\n\t",tile_url
-				except urllib2.HTTPError,e:
-					print "HTTPError:",e,"\n\t",tile_url
-				except socket.timeout,e:
-					print "TimeOut:",e
-				if data:	# get the data into an image file
-					f=open(fpath,"wb")
-					f.write(data)
-					f.close()
-					self.result.put(0)
+			if x>0 and y>0 and zoom>0:
+				# check if tile was in cache
+				fname=server.getCacheFName((x,y),zoom,date,timeshift)
+				fpath=cache.buildpath(fname)
+				if cache:
+					load=not cache.incache(fpath)
 				else:
-					self.result.put(1)
+					load=True
+				if load:	# load if not in cache
+					data=None
+					tile_url=server.getTileUrlFromXY((x,y),zoom,date,timeshift)
+					headers={'User-Agent':self.user_agent}
+					request=urllib2.Request(tile_url,None,headers)
+					try:
+						socket.setdefaulttimeout(config.k_server_timeout)
+						stream=urllib2.urlopen(tile_url)
+						header=stream.info()
+						content=header.getheaders("Content-Type")
+						if len(content)==0 or "text/" in content[0]:
+							data=None
+							if _debug:
+								print "error for %s\n%s" % (tile_url,content)
+						else:
+							data=stream.read()
+						stream.close()
+					except urllib2.URLError,e:
+						if self.errorImage:
+							for err in config.urlError:
+								print err, err in str(e)
+								if err in str(e):
+									data=self.errorImage[err]
+							if not data:
+								data=self.errorImage["default"]
+						print data.__class__
+						print config.urlError
+						print "URLError:",e,"\n\t",tile_url
+					except urllib2.HTTPError,e:
+						print "HTTPError:",e,"\n\t",tile_url
+					except socket.timeout,e:
+						print "TimeOut:",e
+					if data:	# save the data into an image file
+						if data.__class__==PngImagePlugin.PngImageFile:
+							data.save(fpath)
+							self.result.put(1)
+						else:
+							f=open(fpath,"wb")
+							f.write(data)
+							f.close()
+							self.result.put(0)
+					else:
+						self.result.put(1)
+				else:
+					self.result.put(0)
 			self.work.task_done()
 
 class BigMap():
 	""" Assemble tile images into a big image 
 	"""
-	def __init__(self,server=None,zoom=0,date=None,overlay=False):
+	def __init__(self,server=None,zoom=0,date=None,timeshift=None,overlay=False):
 		self.bigImage=None
 		self.server=server
 		self.zoom=zoom
 		self.date=date
+		self.timeshift=timeshift
 		self.filename=None
 		self.setSize((0,0),(0,0))
 		self.markers=[]
 		self.noData=None
+		self.errorImage=None
 		self.tile_cache=[]
 		self.overlay=overlay
 	
@@ -645,12 +678,18 @@ class BigMap():
 		(self.wx,self.wy)=(self.x1-self.x0+1,self.y1-self.y0+1)
 		if self.wx*self.wy!=0 and self.server:
 			self.bigImage=Image.new("RGBA",(self.server.tile_size*self.wx,self.server.tile_size*self.wy))
+	
+	def getSize(self):
+		return (self.wx*self.server.tile_size,self.wy*self.server.tile_size)
 		
 	def getImg(self):
 		return self.bigImage
 	
 	def setMarker(self,list):
 		self.markers=list
+		
+	def setErrorImage(self,imgDict):
+		self.errorImage=imgDict
 		
 	def build(self,background=None):
 		""" create a large white image to fit the required size
@@ -662,23 +701,24 @@ class BigMap():
 			self.chrono=0.0
 		if self.bigImage:
 			for x in range(self.x0,self.x1+1):
-				for y in range(self.y0,self.y1+1) :
-					fname=self.server.getCacheFName((x,y),self.zoom,self.date)
+				for y in range(self.y0,self.y1+1):
 					im=None
-					for (tname,timg) in self.tile_cache:
-						if tname==fname:
-							im=timg
-							break
-					if not im:
-						fpath=os.path.join(config.cachePath,fname)
-						try:
-							im=Image.open(fpath)
-							self.tile_cache.append((fname,im))
-							if len(self.tile_cache)>config.mem_cache:
-								self.tile_cache.remove()
-						except:		
-							# no data, build an empty image (orange)
-							if not self.overlay: im=self.noData
+					if x>=0 and y>=0:
+						fname=self.server.getCacheFName((x,y),self.zoom,self.date,self.timeshift)
+						for (tname,timg) in self.tile_cache:
+							if tname==fname:
+								im=timg
+								break
+						if not im:
+							fpath=os.path.join(config.cachePath,fname)
+							try:
+								im=Image.open(fpath)
+								self.tile_cache.append((fname,im))
+								if len(self.tile_cache)>config.mem_cache:
+									self.tile_cache.remove()
+							except:		
+								# no data, build an empty image (orange)
+								if not self.overlay: im=self.noData
 					if im:
 						dest_pos=(self.server.tile_size*(x-self.x0),self.server.tile_size*(y-self.y0))
 						self.bigImage.paste(im,dest_pos)
@@ -805,6 +845,7 @@ def LoadServers(filename):
 			delay (integer) : time shit (in days)
 			time_step (string list) : value for alternative subfolder in url (replace in {t})
 			time_step_str (string list) : human readable value for time_step list
+			cache (integer) : define a cache duration (hours)
 
 		base url, contain several keys, see : TileServer.getTileUrlFromXY() for details
 	"""

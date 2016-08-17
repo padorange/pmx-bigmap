@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # default value (if no parameters), default location is Vieux Port, La Rochelle, France
+default_query='Tour St-Nicolas, La Rochelle, France'
 default_loc0=(-1.15542,46.15839)		# (longitude,latitude)
 default_loc1=(-1.14923,46.15525)
 default_zoom=17
@@ -30,7 +31,6 @@ _cachedir="cache"
 api_keys_file="api_key.ini"
 tile_servers_file="servers.ini"
 locations_file="locations.ini"
-loading_icon="loading.png"
 pmx_db_file="pmx.db"
 
 # == handle directory =======================================
@@ -56,7 +56,11 @@ print "data dir", wrkdir
 # == Create file paths =======================================
 dbPath=os.path.join(wrkdir,pmx_db_file)
 cachePath=os.path.join(wrkdir,_cachedir)
-loadingImgPath=os.path.join(prgdir,_resourcesPath,loading_icon)
 api_keys_path=os.path.join(prgdir,api_keys_file)
 tile_servers_path=os.path.join(prgdir,tile_servers_file)
 locations_path=os.path.join(prgdir,locations_file)
+loadingImgPath=os.path.join(prgdir,_resourcesPath,"loading.png")
+urlError=('default','400','401','403','404','timeout')	# file paths for error tiles
+errorImgPath={}
+for e in urlError:
+	errorImgPath[e]=os.path.join(prgdir,_resourcesPath,"%s.png" % e)
