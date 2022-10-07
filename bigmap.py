@@ -1,14 +1,19 @@
-#!/usr/bin/env python
+#! /usr/bin/python2
 # -*- coding: utf-8 -*-
 
+# python 3 préparation (future)
+from __future__ import print_function
+from __future__ import division
+
+__application__="bigmap.py bot"
+__version__="1.0b3"
 __license__="New BSD"		# see https://en.wikipedia.org/wiki/BSD_licenses
-__copyright__="Copyright 2010-2016, Pierre-Alain Dorange"
+__copyright__="Copyright 2010-2021, Pierre-Alain Dorange"
 __author__="Pierre-Alain Dorange"
 __contact__="pdorange@mac.com"
-__version__="1.0b1"
 
 # debug tags
-_debug=False			# debug mode (verbose)
+_debug=True			# debug mode (verbose)
 _debug_thread=False
 _debug_config=False
 _compute=False			# display computed tiles coordinates (conversions from longitude/latitude to pixels)
@@ -16,18 +21,18 @@ _chrono=False
 
 """ bigmap.py
 ----------------------------------------------------------------------------------------
-Build a big image, by assembling small image from a Tile Map Server (TMS)
-Works like OpenLayers.js of Leaflet.js
+Build a big image, by assembling small images from a Tile Map Server (TMS)
+Works like "OpenLayers.js of Leaflet.js outside of a web browser"
 
 Tiles (small image from TMS) are first download from TMS and store in a local cache
-Then tiles are assembled into a big composite image.
-Download can be synchrnous or asynchronous (faster)
+Then tiles are assembled into a big composite image (map).
+Download can be synchrnous or asynchronous
 	
 bigmap main purpose is to help users creating big image from OSM map data to print (very) large maps
-read carefully licences and notes before using, not all maps have same licence and usage policy
+Read carefully licences and notes before using, maps have different licence and usage policy
 	
 Some TMS require an API key (ie. MapBox), 
-	please add your own API key into config.py to used those services
+	please add your own API key into api_key.ini to used those services
 		
 usage: python bigmap.py -h
 supported TMS : python bigmap.py -d
@@ -37,12 +42,12 @@ bigmap.py is also used by pmx.py software (a map displayer with a tkinter GUI)
 See ReadMe.txt for detailed instructions
 	
 -- Requirements ------------------------------------------------------------------------
-	Python 2.5
+	Python 2.7+
 	PIL Library : <http://www.pythonware.com/products/pil/>
 	ConfigObj : modified ConfigObj 4 <http://www.voidspace.org.uk/python/configobj.html>
 	
 -- Licences ----------------------------------------------------------------------------
-	New-BSD Licence, (c) 2010-2016, Pierre-Alain Dorange
+	New-BSD Licence, (c) 2010-2018, Pierre-Alain Dorange
 	See ReadMe.txt for instructions
 	
 -- Conventions -------------------------------------------------------------------------
@@ -51,52 +56,66 @@ See ReadMe.txt for detailed instructions
 	TileMapService used Web Mercator projection (aka EPSG:3857 or WGS84/Pseudo-Mercator)
 	
 -- References --------------------------------------------------------------------------
+	WGS84 Geodesic system : https://en.wikipedia.org/wiki/World_Geodetic_System#WGS84
+	Longitude : https://en.wikipedia.org/wiki/Longitude
+	Latitude : https://en.wikipedia.org/wiki/Latitude
 	How web map works : https://www.mapbox.com/help/how-web-maps-work/
 	TileMap Maths : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 	EPSG:3857 projection : https://en.wikipedia.org/wiki/Web_Mercator
 	Quadkey for Bing : http://www.web-maps.com/gisblog/?m=200903
-	Longitude : https://en.wikipedia.org/wiki/Longitude
-	Latitude : https://en.wikipedia.org/wiki/Latitude
+	Nominatim (geographic search) : http://wiki.openstreetmap.org/wiki/Nominatim
 	
 -- History -----------------------------------------------------------------------------
-	0.1 september 2010 : initial
-	0.2 june 2011 :
-			add openmapquest tiles
-			troubles with MacOS 10.6 and threads (crash) : used LoadImage in main thread (1 thread only, not optimized)
-	0.3 january 2013
-			add stamen design maps : watercolor, terrain, toner
-	0.4 march 2013
+	0.1 : september 2010
+		initial
+	0.2 : june 2011 :
+		add openmapquest tiles
+		troubles with MacOS 10.6 and threads (crash) : used LoadImage in main thread (1 thread only, not optimized)
+	0.3 : january 2013
+		add stamen design maps : watercolor, terrain, toner
+	0.4 : march 2013
 		enhance tiles server handling
 		debug some platform specific issues
 		add some CloudMade renders, Acetate and Google
-	0.5 add box parameter, reorganize code
+	0.5 : december 2013
+		add box parameter, reorganize code
 		add Nokia Maps + fix bing's quadkeys
-	0.6 revert coordinates to follow general rules for coordinates and bbox
+	0.6 : august 2014
+		revert coordinates to follow general rules for coordinates and bbox
 		add openmapsurfer renders
-	0.7 add '*' wildcards for server name (can render several server at one time)
+	0.7 : december 2014
+		add '*' wildcards for server name (can render several server at one time)
 		add tile error handling for 404 errors
 		add mapbox, apple, map1 and openport_weather servers
 		cache better handling with maximum size
-	0.8 february 2015 :
-			reorganize tile servers (server.ini)
-			add api for mapbox (with API key) + new mapbox map
-			add api for EarthData (Nasa Landsat live) with handle for specifing date (-d)
-			removing cloudmade services (shutdown on april 2014)
-			add -n option and location.ini to reach specific locations
-	0.9 february 2016
-			update mapbox API to new v4 TMS URL
-			update all TMS and add some new one (lonvia, openrailway, wikimedia...)
-			standardize coordinates : longitude (x) first then latitude (y) in all coordinates
-			enable asynchronous download : can be from 1.4 to 4.6 faster depending on request
-	1.0b1 june 2016
-			small updates for pmx.py
-			update ESRI TMS services
-			update EarthData (NASA) and better handle for date
-			add a memory cache to optimize reloading (required for pmx)
-			add a time shift for some earthdata (using day tag in servers.ini)
-			add {w} tag for wikimapia special tag
-			add error images for tiling
-			add timeshift handling (for openweathermap)
+	0.8 : february 2015 :
+		reorganize tile servers (server.ini)
+		add api for mapbox (with API key) + new mapbox map
+		add api for EarthData (Nasa Landsat live) with handle for specifing date (-d)
+		removing cloudmade services (shutdown on april 2014)
+		add -n option and location.ini to reach specific locations
+	0.9 : february 2016
+		update mapbox API to new v4 TMS URL
+		update all TMS and add some new one (lonvia, openrailway, wikimedia...)
+		standardize coordinates : longitude (x) first then latitude (y) in all coordinates
+		enable asynchronous download : can be from 1.4 to 4.6 faster depending on request
+	1.0b1 : june 2016
+		small updates for pmx.py
+		update ESRI TMS services
+		update EarthData (NASA) and better handle for GIBs date
+		add a memory cache to optimize reloading (required for pmx)
+		add a time shift for some earthdata (using day tag in servers.ini)
+		add {w} tag for wikimapia special tag
+		add error images for tiling
+		add timeshift handling (for openweathermap)
+	1.0b2 : august 2016
+		add app_id in api description (for Here API)
+	1.0b3 : august 2018
+		add -f option for Nominatim with autoadjustement to size
+		remove small bugs and fix some issues
+	1.0b4 : june 2021
+		prepare for python 3 compatibility
+		removing configobj dependency (use configparser instead)
 """
 
 # standard modules
@@ -108,15 +127,20 @@ import sys
 import getopt
 import time
 import re
+if sys.version_info.major==2:	# python 2
+	import ConfigParser as configparser		# gestion fichier.INI (paramètres et configuration)
+else:							# python 3
+	import configparser						# gestion fichier.INI (paramètres et configuration)
+import codecs					# gestion des encodages de fichier
 
 urllib2.install_opener(urllib2.build_opener())		# just to disable a bug in MoxOS X 10.6 : force to load CoreFoundation in main thread
 
 # required non-standard modules
-from configobj import *				# read .INI file
 from PIL import Image,ImageDraw,PngImagePlugin		# Image manipulation library
 
 # local
 import config
+import bigmap_nominatim
 
 """ Utilities functions : 
 	compute some maths (tile coordinates to geographical latitude,longtitude...)
@@ -143,7 +167,6 @@ def tilexy2quadkey((tx,ty),zoom):
 		if (ty&mask)!=0:
 			digit+=2
 		quadkey+=str(digit)
-
 	return quadkey
 	
 def tilexy2ll((x,y),zoom):
@@ -165,22 +188,27 @@ def convertFromTile(x,y,zoom):
 	lon_deg=x/n*360.0-180.0
 	lat_rad=math.atan(math.sinh(math.pi*(1-2*y/n)))
 	lat_deg=math.degrees(lat_rad)
-	
 	return Coordinate(lon_deg,lat_deg)
-    			
+	
 """
 	Class/objects
 """
 
 class Coordinate():
-	""" 	Coordinate : define a couple a value (longitude/latitude) to handle geographic coordinates
-		handle algebric operation  : + - * /
-		handle repr/str conversion
+	""" Coordinate : define a couple a value (longitude/latitude) to handle geographic coordinates
+		according to WGS84 standard
 		
 		longitude : specify the east-west angular position (geographic coordinate) : -180° to +180°
 		latitude  : specify the north-south angular position (geographic coordinate) : -90° to +90°
+		coordinates are specified longitude first, latitude second.
+		
+		this class handle :
+			* algebric operation  : + - * /
+			* repr/str conversion
+			* distance calculation
+			* conversion to tile coordinate according to zoom
 	"""
-	def __init__(self,lon,lat):
+	def __init__(self,lon=0.0,lat=0.0):
 		self.lon=lon
 		self.lat=lat
 		
@@ -225,6 +253,21 @@ class Coordinate():
 		lat_rad=math.radians(self.lat)
 		r=(6378137.0*2.0*math.pi/server.tile_size)*math.cos(lat_rad)/(2.0**zoom)
 		return r
+	
+	def distance(self,B):
+		""" Compute distance of the box diagonal, return value in kilometers
+			using the simple earth as a sphere method : https://fr.wikipedia.org/wiki/Orthodromie
+			assuming a nautic mile is 1/60 meridian arcand 1 nautic mile is 1852 meters
+		"""
+		lat_radA=math.radians(self.lat)
+		lon_radA=math.radians(self.lon)
+		lat_radB=math.radians(B.lat)
+		lon_radB=math.radians(B.lon)
+		a=math.sin(lon_radA)*math.sin(lon_radB)
+		b=math.cos(lon_radA)*math.cos(lon_radB)*math.cos(lat_radB-lat_radA)
+		d_rad=math.acos(a+b)
+		d=1.852*60.0*math.degrees(d_rad)
+		return d
 		
 	def __add__(self,other):
 		if (type(other)==int) or (type(other)==float):
@@ -250,9 +293,22 @@ class Coordinate():
 		else:
 			return Coordinate(self.lat/other.lat,self.lon/other.lon)
 		
+	def __floordiv__(self,other):
+		if (type(other)==int) or (type(other)==float):
+			return Coordinate(self.lat/other,self.lon/other)
+		else:
+			return Coordinate(self.lat/other.lat,self.lon/other.lon)
+		
+	def __truediv__(self,other):
+		if (type(other)==int) or (type(other)==float):
+			return Coordinate(self.lat/other,self.lon/other)
+		else:
+			return Coordinate(self.lat/other.lat,self.lon/other.lon)
+
 class BoundingBox():
 	""" BoundingBox : handle a box define by geographical coordinates : up/left and bottom/right
-		All coordinates are longitude/latitude
+		All coordinates are longitude/latitude (see Coordinate object above)
+		Composed of 2 Coordinate objects
 	"""
 	def __init__(self,loc0,loc1):
 		if loc0.lat>loc1.lat:
@@ -280,6 +336,19 @@ class BoundingBox():
 		(lon0,lat0)=self.leftup.convert2Tile(zoom)
 		(lon1,lat1)=self.rightdown.convert2Tile(zoom)
 		return ((lon0,lat1),(lon1,lat0))
+	
+	def distance(self):
+		""" Compute distance of the box diagonal """
+		d=self.leftup.distance(self.rightdown)
+		return d
+		
+	def size(self):
+		""" Compute size (length and height) of the box """
+		a2=Coordinate(self.leftup.lon,self.rightdown.lat)
+		b2=Coordinate(self.rightdown.lon,self.leftup.lat)
+		l=self.leftup.distance(a2)
+		h=self.leftup.distance(b2)
+		return(l,h)
 		
 class Cache():
 	"""	Cache : handle the local cache to avoid downloading many times the same tile image
@@ -296,12 +365,15 @@ class Cache():
 			os.makedirs(self.folder)	
 			
 	def setactive(self,use_cache=True):
+		""" activate cache handling """
 		self.use_cache=use_cache
 		
 	def buildpath(self,fname):
+		""" return a valid path to cache image """
 		return os.path.join(self.folder,fname)
 		
 	def incache(self,fpath):
+		""" return True is image is allready in cache and is valid """
 		if self.use_cache:
 			if os.path.isfile(fpath):
 				dt=time.time()-os.path.getctime(fpath)
@@ -310,6 +382,7 @@ class Cache():
 		return False
 		
 	def getSize(self):
+		""" return the current cache size """
 		tsize=0
 		for o in os.listdir(self.folder):
 			f=os.path.join(self.folder,o)
@@ -322,7 +395,7 @@ class Cache():
 				- tiles older than delay
 				- tiles oldest when total cache size exceed limit
 		"""
-		# remove old files (delay)
+		# remove unvalid files (delay)
 		for o in os.listdir(self.folder):
 			f=os.path.join(self.folder,o)
 			if os.path.isfile(f):
@@ -341,7 +414,7 @@ class Cache():
 				sz+=s
 				list.append((f,d,s))
 		if sz>self.max_size:	# if total size greatest than limit, sort by date and remove oldest
-			print "Cache too big, need cleaning :",ByteSize(sz) 
+			print("Cache too big, need cleaning :",ByteSize(sz))
 			list=sorted(list,key=lambda tup:tup[1])
 			i=0
 			while sz>self.max_size:
@@ -396,7 +469,7 @@ class TileServer():
 		self.min_zoom=0				# min suported zoom
 		self.max_zoom=0				# max supported zoom
 		self.format="PNG"			# image format : PNG / JPEG / GIF
-		self.mode="RGB"				# pixel definition : RGB / RGBA
+		self.mode="RGB"				# pixel definition : RGB / RGBA (RGB with transparency)
 		self.extension="png"		# file extension (according to image format)
 		self.tile_size=config.default_tile_size	# tile pixels size
 		self.size_x=config.default_tile_size	# tile pixels width
@@ -451,7 +524,36 @@ class TileServer():
 	
 	def getZoom(self):
 		return (self.min_zoom,self.max_zoom)
-		
+	
+	def getBestZoom(self,box,(px,py)):
+		""" compute the best zoom to make visible the box area (BoundaryBox)
+			in the physical area describe by (px, py) (pixels)
+		"""
+		if box==None:
+			zoom=0
+			if _compute: print("no box")
+		else:
+			distance=(box.rightdown-box.leftup)
+			if distance.lon==0.0 and distance.lat==0.0:
+				zoom=self.max_zoom
+				if _compute: print("node box:",distance)
+			else:
+				zx=math.log((360.0*px)/(distance.lon*self.size_x),2)
+				zy=math.log((170.1022*py)/(distance.lat*self.size_y),2)
+				z=min(zx,zy)
+				if z<self.min_zoom:
+					zoom=self.min_zoom
+				elif z>self.max_zoom:
+					zoom=self.max_zoom
+				else:
+					zoom=int(z+0.5)
+				if _compute:
+					print("available physical size (pixels):",px,py)
+					print("distance (degrees)",distance)
+					print("zoom:",zx,zy,"max:",z)
+					print("final zoom:",zoom)
+		return zoom
+
 	def getCacheFName(self,(x,y),zoom,date=None,timeshift=None):
 		""" return the cache filename for a tile (x,y,z) 
 		"""
@@ -469,40 +571,47 @@ class TileServer():
 	
 	def getTileUrlFromXY(self,(tx,ty),zoom,date=None,timeshift=None):
 		""" return the tile url for this server according to tile coordinates, zoom value
-			and specific format for this server using special tag :
-				{x} 					: longitude (in tile geometry, integer)
-				{y} 					: latitude (in tile geometry, integer)
+			and specific format for this server using special url-tags :
+				{x} {lon}				: longitude (in tile geometry, integer)
+				{y} {lat}				: latitude (in tile geometry, integer)
 				{z} {zoom} 				: zoom (integer)
+				{s} {switch}			: server subdomains if any
 				{q} 					: quadkey (microsoft encoding for x,y,z)
-				{s:...} {switch:...}	: server subdomains (if any, ie. {s:a,b,c})
 				{w}						: wikimapia NUM schema
 				{g}						: google NUM schema
-				{a} {api} 				: api key (if any)
+				{apikey} {api}			: api key (if any)
+				{appid} 				: app identifier (if any)
 				{d} {date} 				: date (YYYY-MM-DD)
 				{t}						: time step, value in time_step tag, passed as date
+			note: {x}, {y} and {z} are mandatory
 		"""
 		try:
 			coord=0
 			url=self.base_url
-			if url.find("{x}")>=0:
+			if url.find("{x}")>=0 or url.find("{lon}")>=0:
 				url=url.replace("{x}","%d" % tx)
+				url=url.replace("{lon}","%d" % tx)
 				coord+=1
-			if url.find("{y}")>=0:
+			if url.find("{y}")>=0 or url.find("{lat}")>=0:
 				url=url.replace("{y}","%d" % ty)
+				url=url.replace("{lat}","%d" % ty)
 				coord+=1
 			if url.find("{z}")>=0 or url.find("{zoom}")>=0:
 				url=url.replace("{z}","%d" % zoom)
 				url=url.replace("{zoom}","%d" % zoom)
 				coord+=1
-			if url.find("{d}")>=0:
+			if url.find("{d}")>=0 or url.find("{date}")>=0:
 				if date==None:
 					date=time.strftime("%Y-%m-%d",time.localtime(time.time()-config.default_day_offset))
 				if self.dateDelay!=0:
-					if _debug: print "date:",date
+					if _debug:
+						print("date:",date)
 					t=time.strptime(date,"%Y-%m-%d")
 					t=time.mktime(t)+24.0*self.dateDelay*3600.0
 					date=time.strftime("%Y-%m-%d",time.localtime(t))
-					if _debug: print "shifted:",date
+					if _debug:
+						print("shifted:",date)
+				url=url.replace("{date}","%s" % date)
 				url=url.replace("{d}","%s" % date)
 			if url.find("{t}")>=0:
 				if timeshift==None:
@@ -526,18 +635,20 @@ class TileServer():
 			if url.find("{g}")>=0:
 				n=(tx+ty)%4
 				url=url.replace('{g}','%d' % n)
-			if url.find("{apikey}")>=0 or  url.find("{a}")>=0:
-				url=url.replace("{apikey}",self.api_key)
-				url=url.replace("{a}",self.api_key)
+			if url.find("{apikey}")>=0 or url.find("{api}")>=0:
+				url=url.replace("{apikey}",self.api_key[0])
+				url=url.replace("{api}",self.api_key[0])
+			if url.find("{appid}")>=0:
+				url=url.replace("{appid}",self.api_key[1])
 			if coord<3:	# test we got 3 coordinates params (x,y and z)
 				raise
 		except:
-			print "error, malformed server base url for %s\n%s\n%s" % (self.name,self.base_url,sys.exc_info())
+			print("error, malformed server base url for %s\n%s\n%s" % (self.name,self.base_url,sys.exc_info()))
 		return url
 		
 	def show_licence(self):
-		print "\tmap licence  : %s" % self.tile_copyright
-		print "\tdata licence : %s" % self.data_copyright	
+		print("\tmap licence  : %s" % self.tile_copyright)
+		print("\tdata licence : %s" % self.data_copyright)
 
 	def __repr__(self):
 		str="%s (zoom:%d-%d)" % (self.name,self.min_zoom,self.max_zoom)
@@ -554,6 +665,7 @@ class TileServer():
 		return str
 
 class ThreadData():
+	""" data for asynchronous process (loading tiles) """
 	def __init__(self,x,y,z,server,date=None,cache=None):
 		self.locx=x
 		self.locy=y
@@ -574,19 +686,22 @@ class LoadImagesFromURL(threading.Thread):
 		self.work=work
 		self.result=result
 		self.errorImage=errorImage
-		self.user_agent="%s/%s" % (__file__,__version__)
+		self.user_agent="%s/%s (https://github.com/padorange/pmx-bigmap)" % (__application__,__version__)
 			
 	def run(self):
 		while not self.work.empty():
 			(x,y,zoom,server,date,timeshift,cache)=self.work.get()
 			if _debug_thread:
-				print "Thread, handle:",server.name,x,y,zoom
+				print("Thread, handle:",server.name,x,y,zoom)
 			if x>0 and y>0 and zoom>0:
 				# check if tile was in cache
 				fname=server.getCacheFName((x,y),zoom,date,timeshift)
-				fpath=cache.buildpath(fname)
 				if cache:
-					load=not cache.incache(fpath)
+					fpath=cache.buildpath(fname)
+					if cache:
+						load=not cache.incache(fpath)
+					else:
+						load=True
 				else:
 					load=True
 				if load:	# load if not in cache
@@ -602,36 +717,37 @@ class LoadImagesFromURL(threading.Thread):
 						if len(content)==0 or "text/" in content[0]:
 							data=None
 							if _debug:
-								print "error for %s\n%s" % (tile_url,content)
+								print("error for %s\n%s" % (tile_url,content))
 						else:
 							data=stream.read()
 						stream.close()
 					except urllib2.URLError,e:
 						if self.errorImage:
 							for err in config.urlError:
-								print err, err in str(e)
+								print(err, err in str(e))
 								if err in str(e):
 									data=self.errorImage[err]
 							if not data:
 								data=self.errorImage["default"]
-						print data.__class__
-						print config.urlError
-						print "URLError:",e,"\n\t",tile_url
+						print("*URLError:",e,"\n\t",tile_url)
 					except urllib2.HTTPError,e:
-						print "HTTPError:",e,"\n\t",tile_url
+						print("*HTTPError:",e,"\n\t",tile_url)
 					except socket.timeout,e:
-						print "TimeOut:",e
-					if data:	# save the data into an image file
-						if data.__class__==PngImagePlugin.PngImageFile:
-							data.save(fpath)
-							self.result.put(1)
-						else:
-							f=open(fpath,"wb")
-							f.write(data)
-							f.close()
-							self.result.put(0)
+						print("*TimeOut:",e,"\n\t",tile_url)
+					except:
+						print("*Unknow error",sys.exc_info()[0],"\n\t",tile_url)
 					else:
-						self.result.put(1)
+						if data and cache:	# save the data into an image file
+							if data.__class__==PngImagePlugin.PngImageFile:
+								data.save(fpath)
+								self.result.put(1)
+							else:
+								f=open(fpath,"wb")
+								f.write(data)
+								f.close()
+								self.result.put(0)
+						else:
+							self.result.put(1)
 				else:
 					self.result.put(0)
 			self.work.task_done()
@@ -652,7 +768,8 @@ class BigMap():
 		self.errorImage=None
 		self.tile_cache=[]
 		self.overlay=overlay
-	
+		self._debug_build=False
+		
 	def __repr__(self):
 		str=""
 		if self.server:
@@ -695,6 +812,7 @@ class BigMap():
 		""" create a large white image to fit the required size
 			paste each individual tile image into it
 			add markers if any
+			use a ram cache then a disk cache
 		"""
 		if _chrono: 
 			t=time.clock()
@@ -708,6 +826,8 @@ class BigMap():
 						for (tname,timg) in self.tile_cache:
 							if tname==fname:
 								im=timg
+								if self._debug_build:
+									print(x,y,"tile in ram cache")
 								break
 						if not im:
 							fpath=os.path.join(config.cachePath,fname)
@@ -715,10 +835,14 @@ class BigMap():
 								im=Image.open(fpath)
 								self.tile_cache.append((fname,im))
 								if len(self.tile_cache)>config.mem_cache:
-									self.tile_cache.remove()
+									del self.tile_cache[0]
+								if self._debug_build:
+									print(x,y,"tile in disk cache")
 							except:		
 								# no data, build an empty image (orange)
 								if not self.overlay: im=self.noData
+								if self._debug_build:
+									print(x,y,"no tile",sys.exc_info())
 					if im:
 						dest_pos=(self.server.tile_size*(x-self.x0),self.server.tile_size*(y-self.y0))
 						self.bigImage.paste(im,dest_pos)
@@ -756,26 +880,37 @@ def LoadAPIKey(filename):
 	""" Load API Key(s) and return a dictionnary for them
 	"""
 	if _debug_config:
-		print "loading",filename
+		print("loading API",filename)
 	dict={}
 	try:
-		keys=ConfigObj(filename)
-		for k in keys:
+		config=configparser.RawConfigParser()
+		with codecs.open(filename,'r',encoding='utf-8') as f:
+			if sys.version_info.major==2:
+				config.readfp(f)
+			else:
+				config.read_file(f)
+				
+		for k in config.sections():
+			if _debug_config:
+				print("\tapikey",k)
+			api=None
+			app=None
 			try:
-				item=keys[k]
+				app=config.get(k,'app')
 			except:
-				print "Error: Can't find",s
-				break
+				pass
 			try:
-				api=item['api']
+				api=config.get(k,'api')
 			except:
-				print "Error: bad api",k
+				print("Error: bad api",k)
 				break
-			dict[k]=api
+			dict[k]=(api,app)
 	except:
-		print "loading",filename,"error"
-		print sys.exc_info()
+		print("ERROR loading",filename)
+		print(sys.exc_info())
 		dict={}
+	if _debug_config:
+		print("apis:",dict)
 	return dict
 
 def LoadLocation(filename):
@@ -787,45 +922,46 @@ def LoadLocation(filename):
 			server	tile server (option)
 	"""
 	if _debug_config:
-		print "loading",filename
+		print("loading Loc",filename)
 	dict={}
 	try:
-		keys=ConfigObj(filename)
-		for k in keys:
+		config=configparser.RawConfigParser()
+		with codecs.open(filename,'r',encoding='utf-8') as f:
+			if sys.version_info.major==2:
+				config.readfp(f)
+			else:
+				config.read_file(f)
+				
+		for k in config.sections():
 			try:
-				item=keys[k]
-			except:
-				print "Error: Can't find",s
-				break
-			try:
-				name=item['name']
+				name=config.get(k,'name')
 			except:
 				name=k
 			try:
-				l=item.as_floatList('box')
-				a=Coordinate(l[0],l[1])
-				b=Coordinate(l[2],l[3])
+				l=config.get(k,'box').split(',')
+				a=Coordinate(float(l[0]),float(l[1]))
+				b=Coordinate(float(l[2]),float(l[3]))
 			except:
-				print k,"requires a location"
-				print sys.exc_info()
+				print(k,"requires a location (4 points, 4 values)")
+				print(sys.exc_info())
 				break
 			try:
-				zoom=int(item['zoom'])
+				zoom=int(config.get(k,'zoom'))
 			except:
 				zoom=16
 			try:
-				server=item['server']
+				server=config.get(k,'server')
 			except:
 				server=config.default_server
 				
 			dict[k]=(name,a,b,zoom,server)
 	except:
-		print "loading",filename,"error"
-		print sys.exc_info()
+		print("loading",filename,"error")
+		print(sys.exc_info())
 		dict={}
 	return dict
 				
-def LoadServers(filename):
+def LoadServers(filename,api_dict=None):
 	""" Load tiles server data from 'servers.ini' file, using keyword to get data :
 			url (string) : the url syntax, see keys below for Base-URL
 			zoom (integer list) : integer representing zoom min and max available for the map
@@ -841,8 +977,8 @@ def LoadServers(filename):
 			type (string) : 'map' or 'overlay'
 			data (string) : copyright string for the data of the map
 			tile (string) : copyright string for the map design 
-			api (string) : the API user key for protected services
-			delay (integer) : time shit (in days)
+			api (string) : the API identifier key for protected services (apikey are in api_key.ini)
+			day (integer) : time shit (in days)
 			time_step (string list) : value for alternative subfolder in url (replace in {t})
 			time_step_str (string list) : human readable value for time_step list
 			cache (integer) : define a cache duration (hours)
@@ -850,86 +986,89 @@ def LoadServers(filename):
 		base url, contain several keys, see : TileServer.getTileUrlFromXY() for details
 	"""
 	if _debug_config:
-		print "loading",filename
+		print("loading TMS",filename)
 	list=[]
 	try:
-		servers=ConfigObj(filename)
-		for s in servers:
+		servers=configparser.RawConfigParser()
+		with codecs.open(filename,'r',encoding='utf-8') as f:
+			if sys.version_info.major==2:
+				servers.readfp(f)
+			else:
+				servers.read_file(f)
+				
+		for s in servers.sections():
 			try:
-				item=servers[s]
+				url=servers.get(s,'url')
 			except:
-				print "Error: Can't find",s
+				print("Error: bad url for",s)
 				break
 			try:
-				url=item['url']
-			except:
-				print "Error: bad url for",s
-				break
-			try:
-				sub_domain=item['subdomain']
+				sub_domain=servers.get(s,'subdomain')
 			except:
 				sub_domain=None
 			try:
-				zoom=item.as_intList('zoom')
+				l=servers.get(s,'zoom').split(',')
+				zoom=(int(l[0]),int(l[1]))
 			except:
-				print "Error: bad zoom (min,max) for",s
+				print("Error: bad zoom (min,max) for",s)
 				break
 			try:
-				desc=item['desc']
+				desc=servers.get(s,'desc')
 			except:
 				desc=""
 			try:
-				familly=item['familly']
+				familly=servers.get(s,'familly')
 			except:
 				familly=""
 			try:
-				type=item['type']
+				type=servers.get(s,'type')
 			except:
 				type="map"
 			try:
-				service=item['service']
+				service=servers.get(s,'service')
 			except:
 				service=""
 			try:
-				delay=int(item['day'])
+				delay=int(servers.get(s,'day'))
 			except:
 				delay=0
 			try:
-				ts_value=item['time_step']
+				ts_value=servers.get(s,'time_step').split(',')
 			except:
 				ts_value=[]
 			try:
-				ts_string=item['time_step_str']
+				ts_string=servers.get(s,'time_step_str').split(',')
 			except:
 				ts_string=[]
 			try:
-				data_copyright=item['data']
+				data_copyright=servers.get(s,'data')
 			except:
-				data_copyright=""
+				data_copyright="no information"
 			try:
-				tile_copyright=item['tile']
+				tile_copyright=servers.get(s,'tile')
 			except:
-				tile_copyright=""
+				tile_copyright="no information"
 			try:
-				k=item['api']
+				k=servers.get(s,'api')
 				try:
-					api_key=api_keys[k]
+					api_key=api_dict[k]
 				except:
-					print "Error: require a valid api key defined in api_key.ini for",s
-					print "\t",k,"not found in",api_keys
-					continue			
+					print("Error: require a valid api key defined in api_key.ini for",s)
+					print("\t",k,"not found in",api_dict)
+					continue
 			except:
 				api_key=None
 			try:
-				format=item['format']
+				format=servers.get(s,'format')
 			except:
 				format="PNG"
 			try:
-				mode=item['mode']
+				mode=servers.get(s,'mode')
 			except:
 				mode="RGB"
 			try:
-				size=item.as_intList('size')
+				l=servers.get(s,'size').split(',')
+				size=(int(l[0]),int(l[1]))
 			except:
 				size=(config.default_tile_size,config.default_tile_size)
 			server=TileServer(s,desc,familly,type)
@@ -942,8 +1081,8 @@ def LoadServers(filename):
 			server.setTimeShift(ts_value,ts_string)
 			list.append(server)
 	except:
-		print "loading",filename,"error"
-		print sys.exc_info()
+		print("loading",filename,"error")
+		print(sys.exc_info())
 		list=[]
 			
 	list.sort(key=lambda x : x.name)
@@ -952,35 +1091,36 @@ def LoadServers(filename):
 def Usage():
 	""" Display usage for the command (syntax and minimum help)
 	"""
-	print
-	print "%s usage" % __file__
-	print "\t-h (--help) : help"
-	print "\t-d (--display) : show complete list of available servers"
-	print "\t-o (--output) : specify output file name"
-	print "\t-s (--server) : select servers from names (add '*' as first character to search a partial name)"
-	print "\t-z (--zoom) : set zoom"
-	print "\t-b (--box) : setbounding box (left,top,right,bottom)"
-	print "\t-l (--location) : set location (longitude,latitude)"
-	print "\t-t (--tile) : for centered download indicates width and height in meters"
-	print "\t-m (--marker) : define a marker list file (text format)"
-	print "\t-n (--name) : specify a location by its name (see locations.ini file)"
-	print "\t-c (--cache) : override local tile cache"
-	print "\t--date=date (YYYY-MM-DD) for EarthData realtime data"
-	print "\t--test : test servers"
-	print "Servers list : ",
+	print()
+	print("%s usage" % __file__)
+	print("\t-h (--help) : help")
+	print("\t-d (--display) : show complete list of available servers")
+	print("\t-o (--output) : specify output file name")
+	print("\t-s (--server) : select servers from names (add '*' as first character to search a partial name)")
+	print("\t-z (--zoom) : set zoom")
+	print("\t-b (--box) : setbounding box (left,top,right,bottom)")
+	print("\t-l (--location) : set location (longitude,latitude)")
+	print("\t-t (--tile) : for centered download indicates width and height in meters")
+	print("\t-f (--find) : for Nominatim search")
+	print("\t-m (--marker) : define a marker list file (text format)")
+	print("\t-n (--name) : specify a location by its name (see locations.ini file)")
+	print("\t-c (--cache) : override local tile cache")
+	print("\t--date=date (YYYY-MM-DD) for EarthData realtime data")
+	print("\t--test : test servers")
+	print("Servers list : ",)
 	prefix=""
 	for s in tile_servers:
-		print prefix,s.name,
+		print(prefix,s.name,)
 		prefix=","
 	print
 	
 def ShowServers():
 	""" Display a complete list of tile servers handled	"""
-	print "%s tile servers list" % __file__
+	print("%s tile servers list" % __file__)
 	for s in tile_servers:
-		print s
+		print(s)
 
-def Do(server,box,zoom,cache,mlist=[],date=None,filename=None):
+def Do(server,box,zoom,cache,mlist=[],date=None,timeshift=None,filename=None):
 	""" Execute the request :
 		load map tiles asynchronously from a map servers inside the box at zoom, 
 		using or not the cache. then assemble tiles into a big image
@@ -991,23 +1131,23 @@ def Do(server,box,zoom,cache,mlist=[],date=None,filename=None):
 	(x1,y1)=(int(tile1[0]),int(tile1[1]))
 	nt=(x1-x0+1)*(y1-y0+1)
 	if nt>config.max_tiles:
-		print "** too many tiles : maximum request is %d tile(s)" % config.max_tiles
-		print "\tyour request :",nt
+		print("** too many tiles : maximum request is %d tile(s)" % config.max_tiles)
+		print("\tyour request :",nt)
 		return
 	if nt<=0:
-		print "** ZERO tiles requested : (%d,%d) - (%d,%d)" % (x0,y0,x1,y1)
+		print("** ZERO tiles requested : (%d,%d) - (%d,%d)" % (x0,y0,x1,y1))
 		return
 	if zoom<server.min_zoom or zoom>server.max_zoom:
-		print "%s : zoom %d is not available (zoom: %d-%d)" % (server.name,zoom,server.min_zoom,server.max_zoom)
+		print("** %s : zoom %d is not available (zoom: %d-%d)" % (server.name,zoom,server.min_zoom,server.max_zoom))
 		return
-	print "%s : recovering %d tile(s)" % (server.name,nt)
+	print("processing %s : recovering %d tile(s)" % (server.name,nt))
 				
 	# create a task queue
 	queue=Queue.Queue()
 	result=Queue.Queue()
 	for x in range(x0,x1+1):
 		for y in range(y0,y1+1) :
-			queue.put((x,y,zoom,server,date,cache))
+			queue.put((x,y,zoom,server,date,timeshift,cache))
 		
 	# handle the task queue
 	if (config.k_nb_thread>1):		# for asyncrhonous : launch process to handle the queue
@@ -1027,28 +1167,53 @@ def Do(server,box,zoom,cache,mlist=[],date=None,filename=None):
 		result.task_done()
 	if error/nt<=config.max_errors:
 		if error>0:
-			print "%d errors, force map assembly" % error
+			print("%d errors, force map assembly" % error)
 		img=BigMap(server,zoom,date)
 		img.setSize((x0,y0),(x1,y1))
 		img.setMarker(mlist)
 		img.build()
 		fname=img.save(filename)
 		#fname=BuildBigMap(server,zoom,(x0,y0),(x1,y1),mlist,date,filename)
-		print "\tFile:",fname
+		print("\tFile:",fname)
 	else:
-		print "%d errors, too manay errors : no map generated" % error
+		print("%d errors, too many errors : no map generated" % error)
 		
 	# always show credits and licences
 	server.show_licence()
+
+def do_test(servers_list):
+	(x,y)=(16357,11699)
+	zoom=15
+	date=None
+	timeshift=None
+	cache=None
+	total_errors=0
+	for s in servers_list:
+		print("--",s.name,"-----")
+		(mini,maxi)=s.getZoom()
+		zoom=maxi
+		# create a task queue
+		t0=time.time()
+		queue=Queue.Queue()
+		result=Queue.Queue()
+		queue.put((x,y,zoom,s,date,timeshift,cache))
+		task=LoadImagesFromURL(queue,result)
+		task.run()
+		while not(result.empty()):
+			e=result.get()
+			result.task_done()
+		t0=time.time()-t0
+		print("\t%.1f secondes" % t0)
+	print("--------")
 		
 def main(argv):
 	"""	Main : handle command line arguments and launch appropriate processes
 	"""
-	print '-------------------------------------------------'
+	print('-------------------------------------------------')
 		
 	# 1/ extract and parse command line arguments to determine parameters
 	try:
-		opts,args=getopt.getopt(argv,"hdo:cb:l:s:z:n:m:",["help","display","output=","cache","box=","location=","server=","zoom=","tile=","date=","name=","marker="])
+		opts,args=getopt.getopt(argv,"hdo:cb:l:s:z:n:f:m:",["help","display","output=","cache","box=","location=","server=","zoom=","tile=","date=","name=","find=","marker=","test"])
 	except:
 		Usage()
 		sys.exit(2)
@@ -1062,10 +1227,12 @@ def main(argv):
 	zoom=config.default_zoom
 	(xwidth,ywidth)=(100.0,100.0)
 	date=time.strftime("%Y-%m-%d",time.localtime(time.time()-config.default_day_offset))	# the prevous day
+	timeshift=None
 	server_names=(config.default_server,)
 	use_cache=True
-	test=False
+	testmode=0
 	markerfile=None
+	nominatim=None
 	err=0
 	
 	# handle arguments
@@ -1078,7 +1245,7 @@ def main(argv):
 				location=Coordinate(float(list[0]),float(list[1]))
 				centered=True
 			except:
-				print "error location must be set as 2 float values",sys.exc_info()
+				print("error location must be set as 2 float values",sys.exc_info())
 				err+=1
 		elif opt in ("-s","--server"):
 			server_names=arg.split(',')
@@ -1091,7 +1258,7 @@ def main(argv):
 				downright=Coordinate(float(list[2]),float(list[3]))
 				centered=False
 			except:
-				print "error location must be set as 4 float values",sys.exc_info()
+				print("error location must be set as 4 float values",sys.exc_info())
 				err+=1
 		elif opt in ("-t","--tile"):
 			try:
@@ -1100,7 +1267,7 @@ def main(argv):
 				ywidth=float(list[0])
 				centered=True
 			except:
-				print "error width must be set as 2 int values",sys.exc_info()
+				print("error width must be set as 2 int values",sys.exc_info())
 				err+=1
 		elif opt in ("-n","--name"):
 			try:
@@ -1111,8 +1278,29 @@ def main(argv):
 				server_names=(locations[arg][4],)
 				centered=False
 			except:
-				print "error location %s not defined" % arg
-				print sys.exc_info()
+				print("error location %s not defined" % arg)
+				print(sys.exc_info())
+				err+=1
+		elif opt in ("-f","--find"):
+			try:
+				url=bigmap_nominatim.query_url((arg,))
+				if url.download()==0:
+					results=url.xml_parse()
+					if len(results)>0:
+						r=results[0]
+						print("RESULT: %s/%s\n\t%s"% (r.familly,r.type,r.fullname))
+						if r.box:
+							upleft=r.box.leftup
+							downright=r.box.rightdown
+							centered=False
+						else:
+							location=r.location
+							centered=True
+					else:
+						print("No result using Nominatim for:",arg)
+			except:
+				print("error with query %s" % arg)
+				print(sys.exc_info())
 				err+=1
 		elif opt in ("-d","--display"):
 			ShowServers()
@@ -1123,117 +1311,124 @@ def main(argv):
 			date=arg
 		elif opt in ("-m","--marker"):
 			markerfile=arg
+		elif opt in ("--test",):
+			print("test option activated")
+			testmode=1
 		else:
 			Usage()
 			sys.exit()
-			
-	# read marker file (text) if any		
-	mlist=[]
-	if markerfile:
-		f=open(markerfile,'r')
-		for line in f:
-			items=line.split('\t')
-			mlist.append((float(items[0]),float(items[1]),items[2]))
-		f.close()
 	
-	# define the match server(s) list
-	match_servers=[]
-	for n in server_names:
-		for s in tile_servers:
-			if re.search(n,s.name):
-				match_servers.append(s)
-			if s.name==n:
+	if testmode>0:
+		do_test(tile_servers)
+	else:
+		# read marker file (text) if any
+		mlist=[]
+		if markerfile:
+			f=open(markerfile,'r')
+			for line in f:
+				items=line.split('\t')
+				mlist.append((float(items[0]),float(items[1]),items[2]))
+			f.close()
+		
+		# define the match server(s) list : using a list of name (server_names) comparing with server.name
+		match_servers=[]
+		for n in server_names:
+			for s in tile_servers:
+				if s.name==n:
 					match_servers.append(s)
-	if len(match_servers)==0:
-		print "no server known as",server_names
-		Usage()	
-		err+=1
-	elif len(match_servers)>1:
-		print "%d match servers :" % len(match_servers),
-		prefix=""
-		for s in match_servers:
-			print "%s%s" % (prefix,s.name),
-			prefix=", "
-		print
-					
-	# 2/ do the job
-	if err==0:	
-		# 2.1/ Check/Create cache
-		cache=Cache(config.cachePath,config.k_cache_max_size,config.k_cache_delay)
-		cache.setactive(use_cache)
-		cache.clear()
-		print cache
+				elif re.search(n,s.name):
+					match_servers.append(s)
+		if len(match_servers)==0:
+			print("no server matching for:",server_names)
+			Usage()	
+			err+=1
+		elif len(match_servers)>1:
+			print("%d matching servers :" % len(match_servers),)
+			prefix=""
+			for s in match_servers:
+				print("%s%s" % (prefix,s.name),)
+				prefix=", "
+			print()
+						
+		# 2/ do the job
+		if err==0:	
+			# 2.1/ Check/Create cache
+			cache=Cache(config.cachePath,config.k_cache_max_size,config.k_cache_delay)
+			cache.setactive(use_cache)
+			cache.clear()
+			print(cache)
 
-		# 2.2/ lets go
-		if config.k_chrono:
-			t0 = time.time()		
-		for s in match_servers:
-			if (centered):
-				r=location.getResolution(s,zoom)
-				tx=(0.5*xwidth/r)/s.tile_size
-				ty=(0.5*ywidth/r)/s.tile_size
-				dx=360.0*tx/(2.0**zoom)
-				dy=360.0*ty/(2.0**zoom)			
-				downright=Coordinate(location.lon+dx,location.lat+dy)
-				upleft=Coordinate(location.lon-dx,location.lat-dy)
-				l=tilexy2ll((tx,ty),zoom)
-				if _compute:	
-					print "location       : %.5f, %.5f, zoom: %d" % (location.lon,location.lat,zoom)
-					print "resolution     : %.5f m/pixel" % location.getResolution(s,zoom)
-					print "Size (meters)  : %.2f, %.2f" % (xwidth,ywidth)
-					print "Size (tiles)   : %.2f, %.2f" % (2*tx,2*ty)
-					print "dl             : %.5f, %.5f, zoom: %d" % (l[0],l[1],zoom)
-					print "Size (degrees) : %.5f, %.5f" % (2*dx,2*dy)
-			else:
-				location=(upleft+downright)/2
-				if _compute:
-					dy=(downright.lat-upleft.lat)/2
-					dx=(downright.lon-upleft.lon)/2
-					print "box    : (%.5f, %.5f) - (%.5f, %.5f)" % (upleft.lon,upleft.lat,downright.lon,downright.lat)
-					print "center : %.5f, %.5f, zoom: %d" % (location.lon,location.lat,zoom)
-					print "size   : %.5f, %.5f" % (2*dx,2*dy)
-			mlist.append((location.lon,location.lat))
-			box=BoundingBox(upleft,downright)
-			if _compute:	
-				(tile0,tile1)=box.convert2Tile(zoom)	
-				print "Tile : ",tile0,tile1
-			marks=[]
-			if len(mlist)>0:	# handle markers
-				colors=["red","blue","green","orange","black","cyan","magenta","yellow","white"]
-				index=0
-				r=location.getResolution(s,zoom)
-				(tile0,tile1)=box.convert2Tile(zoom)
-				(x0,y0)=(int(tile0[0]),int(tile0[1]))
-				origin=convertFromTile(x0,y0,zoom)
-				for marker in mlist:
-					loc=Coordinate(marker[0],marker[1])
-					dloc=loc-origin
-					px=s.tile_size*(2.0**zoom)*dloc.lat/360.0
-					py=-s.tile_size*(2.0**zoom)*dloc.lon/360.0
-					marks.append((px,py,colors[index],12))
-					index=index+1
-					if index>=len(colors):
-						index=0
-					if _compute:
-						print "Marker (loc)    : (%.5f,%.5f : %.5f" % (loc.lon,loc.lat,r)
-						print "upleft (loc)    : (%.5f,%.5f)" % (upleft.lon,upleft.lat)
-						print "upleft (tile)   : (%.2f,%.2f) > (%d,%d)" % (tile0[0],tile1[1],x0,y0)
-						print "origin (loc)    : (%.5f,%.5f)" % (origin.lon,origin.lat)
-						print "Marker (dloc)   : (%.5f,%.5f)" % (dloc.lon,dloc.lat)
-						print "Marker (pixels) : (%.1f,%.1f)" % (px,py)
-			if output_filename and len(match_servers)>1:
-				filename="%s-%s" % (s.name,output_filename)
-			else:
-				filename=output_filename
-			Do(s,box,zoom,cache,marks,date,filename)
-		if config.k_chrono:
-			t1 = time.time() - t0
+			# 2.2/ lets go
 			if config.k_chrono:
-				print "processing : %.1f seconds" % (t1)
-			t0 = time.time()
+				t0 = time.time()		
+			for s in match_servers:
+				if (centered):
+					r=location.getResolution(s,zoom)
+					tx=(0.5*xwidth/r)/s.tile_size
+					ty=(0.5*ywidth/r)/s.tile_size
+					dx=360.0*tx/(2.0**zoom)
+					dy=360.0*ty/(2.0**zoom)			
+					downright=Coordinate(location.lon+dx,location.lat+dy)
+					upleft=Coordinate(location.lon-dx,location.lat-dy)
+					l=tilexy2ll((tx,ty),zoom)
+					if _compute:	
+						print("location       : %.5f, %.5f, zoom: %d" % (location.lon,location.lat,zoom))
+						print("resolution     : %.5f m/pixel" % location.getResolution(s,zoom))
+						print("Size (meters)  : %.2f, %.2f" % (xwidth,ywidth))
+						print("Size (tiles)   : %.2f, %.2f" % (2*tx,2*ty))
+						print("dl             : %.5f, %.5f, zoom: %d" % (l[0],l[1],zoom))
+						print("Size (degrees) : %.5f, %.5f" % (2*dx,2*dy))
+				else:
+					location=(upleft+downright)/2
+					if _compute:
+						dy=(downright.lat-upleft.lat)/2
+						dx=(downright.lon-upleft.lon)/2
+						print("box    : (%.5f, %.5f) - (%.5f, %.5f)" % (upleft.lon,upleft.lat,downright.lon,downright.lat))
+						print("center : %.5f, %.5f, zoom: %d" % (location.lon,location.lat,zoom))
+						print("size   : %.5f, %.5f" % (2*dx,2*dy))
+				box=BoundingBox(upleft,downright)
+				print("Box size (km): %.2f, %.2f" % box.size())
+				if _compute:	
+					(tile0,tile1)=box.convert2Tile(zoom)	
+					print("Tile : ",tile0,tile1)
+				marks=[]
+				if len(mlist)>0:	# handle markers
+					colors=["red","blue","green","orange","black","cyan","magenta","yellow","white"]
+					index=0
+					r=location.getResolution(s,zoom)
+					(tile0,tile1)=box.convert2Tile(zoom)
+					(x0,y0)=(int(tile0[0]),int(tile0[1]))
+					origin=convertFromTile(x0,y0,zoom)
+					for marker in mlist:
+						loc=Coordinate(marker[0],marker[1])
+						dloc=loc-origin
+						px=s.tile_size*(2.0**zoom)*dloc.lat/360.0
+						py=-s.tile_size*(2.0**zoom)*dloc.lon/360.0
+						marks.append((px,py,colors[index],12))
+						index=index+1
+						if index>=len(colors):
+							index=0
+						if _compute:
+							print("Marker (loc)    : (%.5f,%.5f : %.5f" % (loc.lon,loc.lat,r))
+							print("upleft (loc)    : (%.5f,%.5f)" % (upleft.lon,upleft.lat))
+							print("upleft (tile)   : (%.2f,%.2f) > (%d,%d)" % (tile0[0],tile1[1],x0,y0))
+							print("origin (loc)    : (%.5f,%.5f)" % (origin.lon,origin.lat))
+							print("Marker (dloc)   : (%.5f,%.5f)" % (dloc.lon,dloc.lat))
+							print("Marker (pixels) : (%.1f,%.1f)" % (px,py))
+				if output_filename and len(match_servers)>1:
+					filename="%s-%s" % (s.name,output_filename)
+				else:
+					filename=output_filename
+				Do(s,box,zoom,cache,marks,date,timeshift,filename)
+			if config.k_chrono:
+				t1 = time.time() - t0
+				if config.k_chrono:
+					print("processing : %.1f seconds" % (t1))
+				t0 = time.time()
 
+# main (load essential config file (as global data) then run
 api_keys=LoadAPIKey(config.api_keys_path)
-tile_servers=LoadServers(config.tile_servers_path)
+tile_servers=LoadServers(config.tile_servers_path,api_keys)
 locations=LoadLocation(config.locations_path)
 
 if __name__ == '__main__' :

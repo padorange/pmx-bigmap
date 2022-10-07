@@ -1,48 +1,40 @@
-#!/usr/bin/env python
+#! /usr/bin/python2
 # -*- coding: utf-8 -*-
 
+# python 3 préparation (future)
+#from __future__ import print_function
+#from __future__ import division
+
 # == projet description =====================================
+__application__="Python Map eXplorer (pmx)"
+__version__="1.0a5"
+__copyright__="Copyright 2010-2019, Pierre-Alain Dorange"
+__license__="BSD"
 __author__="Pierre-Alain Dorange"
 __contact__="pdorange@mac.com"
-__copyright__="Copyright 2016, Pierre-Alain Dorange"
-__license__="BSD"
-__version__="1.0a3"
-__application__="Python Map eXplorer (pmx)"
-
-# debug tags
-_debug_sql=False
 
 """ pmx.py (Python Map eXplorer)
 ----------------------------------------------------------------------------------------
 A Map Explorer software based on TMS online services (slippymap)
-pmx rely on 
-	- bigmap.py library (included)
-	- Tkinter (most often included into python)
-	- PIL or Pillow library (not included, require seperate install)
+pmx is a GUI for bigmap.py that can be used from Terminal.
 
 usage: python pmx.py
 
-See ReadMe.txt for detailed instructions
+See ReadMe.txt for detailed instructions and some TMS configuration
 See bigmap.py for detail on TMS downloads.	
 	
 -- Requirements ------------------------------------------------------------------------
-	Python 2.5 / 2.7
-	Tkinter (include with python) for cross-platform GUI
-	PIL or Pillow Library : <http://www.pythonware.com/products/pil/>
+	Python 2.7+
+	Tkinter (included with most python distrib) for cross-platform GUI
+	Pillow or PIL Library : <https://python-pillow.org/>
 	ConfigObj : modified ConfigObj 4 <http://www.voidspace.org.uk/python/configobj.html>
 	
 -- Licences ----------------------------------------------------------------------------
-	New-BSD Licence, (c) 2010-2016, Pierre-Alain Dorange
+	New-BSD Licence, (c) 2010-2019 Pierre-Alain Dorange
 	See ReadMe.txt for instructions
 	
 -- References --------------------------------------------------------------------------
-	How web map works : https://www.mapbox.com/help/how-web-maps-work/
-	TileMap Maths : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
-	Quadkey for Bing : http://www.web-maps.com/gisblog/?m=200903
-	Longitude : https://en.wikipedia.org/wiki/Longitude
-	Latitude : https://en.wikipedia.org/wiki/Latitude
-	EPSG:3857 projection : https://en.wikipedia.org/wiki/Web_Mercator
-	Nominatim : http://wiki.openstreetmap.org/wiki/Nominatim
+	See reference section in bigmap.py
 	
 -- History -----------------------------------------------------------------------------
 	1.0a1 february 2016 : initial alpha
@@ -52,26 +44,40 @@ See bigmap.py for detail on TMS downloads.
 		optimize loading (adding a ram cache for bigmap.py)
 	1.0a3 july-august 2016 :
 		map resize according to window size, and adjust offscreen size
-		add error tile
-		add date widget
-		add search via Nominatim service
+		add error tile (need more work)
+		add date widget (for date compatible service)
+	1.0a4 august 2016
+		add search via Nominatim service with results storage and autozoom
+	1.0a5 june 2019
+		few adapation for Debian
+	1.0a6 june 2021
+		adding more TMS
+		prepare for Python 3 compatibility
 """
 # == Standard Library =======================================
 import os,sys,time
+import math
 import threading	# multitask handling (threads)
 import Queue		# queue handling
 import sqlite3		# sql local database
-import Tkinter		# Tkinter (TK/TCL for Python) : Simple standard GUI (no-OS dependant)
+import Tkinter		# Tkinter (TK/TCL for Python) : Simple standard GUI (OS independant)
 import tkFileDialog, tkMessageBox
+if sys.version_info.major==2:	# python 2
+	import ConfigParser as configparser		# gestion fichier.INI (paramètres et configuration)
+else:							# python 3
+	import configparser						# gestion fichier.INI (paramètres et configuration)
 
 # == Special Library (need seperate install) =================
 from PIL import Image,ImageDraw,ImageTk		# Image manipulation library
 
 # == Local library ===========================================
-import config			# configobj 4 modified
 import bigmap			# bigmap : handle downloading and assembling tiles
 import pmx_map			# Map Widget for Tkinter
 import bigmap_nominatim	# Nominatim interface (search location)
+
+# debug tags
+_debug_sql=False
+_chrono_map=True
 
 # == Code ====================================================
 
@@ -219,13 +225,13 @@ class AppConfig():
 	def loadResults(self):
 		cursor=self.sql.cursor()
 		# create table if not allready done
-		sql_cmd="CREATE TABLE IF NOT EXISTS results (osm_id INTEGER,name TEXT,osm_type TEXT,type TEXT,place INTEGER,longitude REAL,latitude REAL);"
+		sql_cmd="CREATE TABLE IF NOT EXISTS results (osm_id INTEGER,name TEXT,osm_type TEXT,type TEXT,place INTEGER,longitude REAL,latitude REAL,lon0 REAL,lon1 REAL,lat0 REAL,lat1 REAL);"
 		if _debug_sql:
 			print sql_cmd
 		cursor.execute(sql_cmd)
 		self.sql.commit()
 		# load
-		sql_cmd="SELECT osm_id,name,osm_type,type,place,longitude,latitude FROM results;"
+		sql_cmd="SELECT osm_id,name,osm_type,type,place,longitude,latitude,lon0,lon1,lat0,lat1 FROM results;"
 		if _debug_sql:
 			print sql_cmd
 		cursor.execute(sql_cmd)
@@ -238,6 +244,9 @@ class AppConfig():
 			r.type=i[3]
 			r.placeid=int(i[4])
 			r.location=bigmap.Coordinate(float(i[5]),float(i[6]))
+			leftup=bigmap.Coordinate(float(i[7]),float(i[9]))
+			rightdown=bigmap.Coordinate(float(i[8]),float(i[10]))
+			r.box=bigmap.BoundingBox(leftup,rightdown)
 			self.results.append(r)
 		cursor.close()
 		
@@ -245,9 +254,9 @@ class AppConfig():
 		cursor=self.sql.cursor()
 		sql_cmd="DELETE FROM results;"
 		cursor.execute(sql_cmd)
-		sql_cmd="INSERT INTO results(osm_id,name,osm_type,type,place,longitude,latitude) VALUES(?,?,?,?,?,?,?);"
+		sql_cmd="INSERT INTO results(osm_id,name,osm_type,type,place,longitude,latitude,lon0,lon1,lat0,lat1) VALUES(?,?,?,?,?,?,?,?,?,?,?);"
 		for r in self.results:
-			cursor.execute(sql_cmd,(r.id,r.name,r.osm_type,r.type,r.place_id,r.location.lon,r.location.lat))
+			cursor.execute(sql_cmd,(r.id,r.name,r.osm_type,r.type,r.place_id,r.location.lon,r.location.lat,r.box.leftup.lon,r.box.rightdown.lon,r.box.leftup.lat,r.box.rightdown.lat))
 		self.sql.commit()
 		cursor.close()
 		
@@ -267,7 +276,7 @@ class main_gui(Tkinter.Frame):
 		# load error tiles
 		self.loadingImg=Image.open(config.loadingImgPath)
 		self.loadingImg.load()
-		self.errorImage={}
+		self.errorImage={}		# load error images
 		for e in config.urlError:
 			self.errorImage[e]=Image.open(config.errorImgPath[e])
 			self.errorImage[e].load()
@@ -427,7 +436,7 @@ class main_gui(Tkinter.Frame):
 			id=-1
 			if pmx_map._debug_gui: print "noselect:"
 			self.currentMap=None
-		if pmx_map._debug_gui: 			print "\tmap:",self.currentMap
+		if pmx_map._debug_gui: print "\tmap:",self.currentMap
 		self.map.setMapServer(self.currentMap)
 		self.setServerText(self.currentMap,self.currentOverlay)
 	
@@ -440,7 +449,7 @@ class main_gui(Tkinter.Frame):
 		else:
 			id=-1
 			if pmx_map._debug_gui: print "noselect:"
-			self.self.currentOverlay=None
+			self.currentOverlay=None
 		if pmx_map._debug_gui: print "\tmap:",self.currentOverlay
 		self.map.setOverlayServer(self.currentOverlay)
 		self.setServerText(self.currentMap,self.currentOverlay)
@@ -756,7 +765,7 @@ class SearchDialog(Tkinter.Toplevel):
 		if sel:
 			id=int(sel[0])
 			self.location=self.results[id].location
-			self.zoom=self.results[id].zoom
+			self.zoom=self.getZoom(self.results[id].box)
 			self.bOk.config(state=Tkinter.NORMAL)
 		else:
 			self.location=None
@@ -782,6 +791,12 @@ class SearchDialog(Tkinter.Toplevel):
 	def apply(self):
 		pass	# override
 		
+	def getZoom(self,box=None):
+		""" best zoom to make visible the box area """
+		wsize=self.map.getWidgetSize()
+		zoom=self.map.mapServer.getBestZoom(box,wsize)
+		return zoom
+
 # -- Main -------------------------
 def main(sargs):
 	print "-- %s %s ----------------------" % (__application__,__version__)

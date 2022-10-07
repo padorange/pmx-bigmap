@@ -8,10 +8,11 @@ See pmx.py for licence and usage details
 
 # debug tags
 _debug_idle=False
-_debug_gui=False
+_debug_gui=True
 _debug_coord=False
-_debug_chrono=False
+_debug_chrono=True
 _debug_offscreen=False
+_debug_export=False
 
 # == Standard Library =======================================
 import os,sys,time
@@ -22,7 +23,7 @@ import Tkinter, tkFileDialog, tkMessageBox	# Tkinter (TK/TCL for Python) : Simpl
 from PIL import Image,ImageDraw,ImageTk		# Image manipulation library
 
 # == Local library ==========================================
-import config	# configobj 4 modified
+import config		# configobj 4 modified
 import bigmap
 
 # == Constants & Globals ==============================================
@@ -32,35 +33,42 @@ k_frame=20
 # -- Map Classes ---------------------
 
 class TMapWidget(Tkinter.Canvas):
-	""" the map canvas :
+	""" the map canvas : handle displaying the map in a tkinter canvas
+		used a tk's offscreen and rely on 2 bigmap objects for rendering map (base layout + overlay)
+		also handle the task queue for loading tiles.
+			mapOffscreen : the offscreen full image for map (larger than viewed, see bigmap.py)
+			mapServer : map server used for base layout
+			overlayOffscreen : the offscreen full image for overlay (larger than viewed, see bigmap.py)
+			overlayServer : map server used for overlay
+			tkOffscreen : the tk version of the offsceen image (mix map+overlay), to allow tkinter to handle draw in canvas
+			work_queue : tiles to download
+			result_queue : tiles downloaded and not displayed
 			refresh (True) : update the complete map (zoom, server or canvas size changed)
 			update (True) : update some tiles (scroll or loading)
-			mapOffscreen : the offscreen full image for map (larger than viewed, see bigmap.py)
-			overlayOffscreen : the offscreen full image for overlay (larger than viewed, see bigmap.py)
-			tkOffscreen : the tk version of the offsceen image (mix map+overlay), to allow tkinter to handle draw in canvas
 	"""
 	def __init__(self,window,width=default_win_x,height=default_win_y,cache=None):
 		Tkinter.Canvas.__init__(self,window,width=width,height=height,background="#fff0d4")
 		self.parent=window
 		self.item=None
 		self.tkOffscreen=None
-		self.mapOffscreen=bigmap.BigMap()
-		self.overlayOffscreen=bigmap.BigMap(overlay=True)
 		self.loadingImg=window.loadingImg
 		self.errorImg=window.errorImage
+		self.mapOffscreen=bigmap.BigMap()
 		self.mapOffscreen.setErrorImage(self.errorImg)
-		self.overlayOffscreen.setErrorImage(self.errorImg)
 		self.mapServer=None
+		self.overlayOffscreen=bigmap.BigMap(overlay=True)
+		self.overlayOffscreen.setErrorImage(self.errorImg)
 		self.overlayServer=None
-		self.zoom=0
 		self.location=None
+		self.zoom=0
+		self.date=None
+		self.shift=0
+		self.cache=cache	# the cache handler
+		self.loading=False
 		(self.xmin,self.ymin)=(0,0)
 		(self.xmax,self.ymax)=(0,0)
 		(self.offsetx,self.offsety)=(0,0)
-		self.date=None
-		self.shift=0
-		self.cache=cache
-		self.loading=False
+		# bind some tk GUI interface
 		self.bind("<ButtonPress-1>",self.onClicDown)
 		self.bind("<ButtonRelease-1>",self.onClicUp)
 		self.bind("<MouseWheel>",self.onMouseWheel)
@@ -78,14 +86,15 @@ class TMapWidget(Tkinter.Canvas):
 		if _debug_offscreen:
 			self.frame=0
 			
-		self.after(0,self.idle)
+		self.after(0,self.idle)		# launch idle to finish initializing
 
 	def onClicDown(self,event):
 		""" Handle clic : first clic active drag motion """
 		event.widget.bind ("<Motion>", self.onClicDrag)
 		self.clicLoc=(event.x,event.y)
 		self.originLoc=(event.x,event.y)
-		if _debug_gui: print "clic @",self.clicLoc
+		if _debug_gui: 
+			print "clic @",self.clicLoc
 		
 	def onClicUp(self,event):
 		""" handle clic release : stop drag motion """
@@ -93,12 +102,14 @@ class TMapWidget(Tkinter.Canvas):
 		(mx,my)=(event.x-self.originLoc[0],event.y-self.originLoc[1])
 		(mtx,mty)=(1.0*mx/self.mapServer.tile_size,1.0*my/self.mapServer.tile_size)
 		(x,y)=self.location.convert2Tile(self.zoom)
-		if _debug_gui: print "release :", (mx,my),(mtx,mty)
+		if _debug_gui: 
+			print "release :", (mx,my),(mtx,mty)
 		if _debug_coord:
 			print "location (degrees) : ",self.location
 			print "tiles : ",(x,y),(int(x),int(y))
 			print "move (pixels) : ",(mx,my)
 			print "move (tiles) : ",(mtx,mty)
+		# adjust (new) location according to drag, and memorize
 		self.location.convertFromTile((x-mtx,y-mty),self.zoom)
 		self.parent.config.set('LONGITUDE',self.location.lon)
 		self.parent.config.set('LATITUDE',self.location.lat)
@@ -111,7 +122,8 @@ class TMapWidget(Tkinter.Canvas):
 		(self.offsetx,self.offsety)=(self.offsetx-mx,self.offsety-my)
 		self.updateMap()
 		self.clicLoc=(event.x,event.y)
-		if _debug_gui: print "drag :",mx,my
+		if _debug_gui: 
+			print "drag :",mx,my
 		
 	def onMouseWheel(self,event):
 		""" handle mouse wheel scroll : zoom in/out """
@@ -121,11 +133,12 @@ class TMapWidget(Tkinter.Canvas):
 			self.setZoom(self.zoom+1)
 	
 	def onDoubleClic(self,event):
-		""" handle double clic : move to location """
+		""" handle double clic : move to this new location """
 		(mx,my)=(event.x-self.winfo_width()/2,event.y-self.winfo_height()/2)
 		(mtx,mty)=(1.0*mx/self.mapServer.tile_size,1.0*my/self.mapServer.tile_size)
 		(x,y)=self.location.convert2Tile(self.zoom)
-		if _debug_gui: print "release :", (mx,my),(mtx,mty)
+		if _debug_gui: 
+			print "release :", (mx,my),(mtx,mty)
 		if _debug_coord:
 			print "location (degrees) : ",self.location
 			print "tiles : ",(x,y),(int(x),int(y))
@@ -141,6 +154,7 @@ class TMapWidget(Tkinter.Canvas):
 		self.xdtile=int((0.5*self.winfo_width()/self.mapServer.size_x)+0.5)
 		self.ydtile=int((0.5*self.winfo_height()/self.mapServer.size_y)+0.5)
 		self.refresh=True
+		# memorize new default window size
 		self.parent.config.set('WIN_X',self.winfo_width()-6)
 		self.parent.config.set('WIN_Y',self.winfo_height()-6)
 		if _debug_gui: 
@@ -149,55 +163,56 @@ class TMapWidget(Tkinter.Canvas):
 			print "\toffscreen size (tile):",self.xdtile,self.ydtile
 	
 	def getWidgetSize(self):
+		""" return the widget size """
 		return (self.winfo_width(),self.winfo_height())
 	
 	def getOffscreenSize(self):
+		""" return the offscreen size """
 		return self.mapOffscreen.getSize()
 		
 	def setMapServer(self,map_server):
-		""" define a new map server and store default (+update zoom) """
-		if self.mapServer!=map_server:
-			self.mapServer=map_server
-			self.setZoom(self.zoom)		# update zoom
-			if self.mapServer:	# store current map into config
+		""" define a new map server and store default (+update zoom if necessary) """
+		if map_server:
+			if self.mapServer!=map_server:
+				self.mapServer=map_server
 				mapname=self.mapServer.name
-			else:
-				mapname=""
-			self.parent.config.set('MAP',mapname)
-			# update date/timeshift widget according to map and overlay
-			if self.mapServer.handleDate:
-				self.handleDate=True
-			else:
-				if self.overlayServer:
-					if self.overlayServer.handleDate:
-						self.handleDate=True
+				self.parent.config.set('MAP',mapname)
+				# update zoom/date/timeshift widget according to map and overlay
+				self.handleTimeShift=False
+				self.handleDate=False
+				self.shift=0
+				self.setZoom(self.zoom)
+				if self.mapServer.handleDate:
+					self.handleDate=True
 				else:
-					self.handleDate=False
-			if self.mapServer.handleTimeShift:
-				self.handleTimeShift=True
-			else:
-				if self.overlayServer:
-					if self.overlayServer.handleTimeShift:
-						self.handleTimeShift=True
+					if self.overlayServer:
+						if self.overlayServer.handleDate:
+							self.handleDate=True
+				if self.mapServer.handleTimeShift:
+					self.handleTimeShift=True
 				else:
-					self.handleTimeShift=False
-			self.shift=0
-			if self.handleTimeShift: print "Timeshift"
-			# refresh GUI
-			self.parent.setDateText()
-			self.onResize(None)
-			self.refresh=True
+					if self.overlayServer:
+						if self.overlayServer.handleTimeShift:
+							self.handleTimeShift=True
+				if self.handleTimeShift and _debug_gui: 
+					print "Timeshift"
+				# refresh GUI according to new server
+				self.parent.setDateText()
+				self.onResize(None)
+				self.refresh=True
 		
 	def setOverlayServer(self,overlay_server):
 		""" define a new overlay server for the map from its name and store default (+update zoom) """
 		if self.overlayServer!=overlay_server:
 			self.overlayServer=overlay_server
-			self.setZoom(self.zoom)
+			# store new setting nto config
 			if self.overlayServer:
 				mapname=self.overlayServer.name
 			else:
 				mapname=""
 			self.parent.config.set('OVERLAY',mapname)
+			# update zoom/date and timeshift if required
+			self.setZoom(self.zoom)
 			if self.overlayServer and self.overlayServer.handleDate:
 				self.handleDate=True
 			else:
@@ -212,9 +227,10 @@ class TMapWidget(Tkinter.Canvas):
 					self.handleTimeShift=True
 				else:
 					self.handleTimeShift=False
-			if self.handleTimeShift: print "Timeshift"
-			# refresh GUI
 			self.shift=0
+			if self.handleTimeShift and _debug_gui: 
+				print "Timeshift (overlay)"
+			# refresh GUI according to new overlay
 			self.parent.setDateText()
 			self.onResize(None)
 			self.refresh=True
@@ -223,14 +239,14 @@ class TMapWidget(Tkinter.Canvas):
 		""" define a new location (with optional zoom) for the map and store default """
 		if zoom:
 			self.setZoom(zoom)
-		if self.location!=location:
+		if self.location!=location:		# set new location (and update config)-
 			self.location=location
 			self.parent.config.set('LONGITUDE',self.location.lon)
 			self.parent.config.set('LATITUDE',self.location.lat)
 			self.refresh=True
 		
 	def setZoom(self,zoom):
-		""" define a new zoom for the map and store default """
+		""" define a new zoom for the map and store default, check for zoom boundary """
 		(zmmin,zmmax)=self.mapServer.getZoom()
 		if self.overlayServer:
 			(zomin,zomax)=self.overlayServer.getZoom()
@@ -244,19 +260,21 @@ class TMapWidget(Tkinter.Canvas):
 			z=zmax
 		else:
 			z=zoom
-		if z!=self.zoom:
+		if z!=self.zoom:	# set new zoom and update config
 			self.zoom=z
 			self.parent.setZoomText("z=%d" % self.zoom)
 			self.parent.config.set('ZOOM',self.zoom)
 			self.refresh=True
 	
 	def setDate(self,date):
+		""" setDate : define a date (for mapserver using date : handleDate) """
 		if date!=self.date:
 			self.date=date
 			self.parent.setDateText()
 			self.refresh=True
 	
 	def setShift(self,shift):
+		""" setShift : define a timeshift (for mapserver using timeshift : handleTimeShift) """
 		if shift!=self.shift:
 			self.shift=shift
 			self.mapServer.timeshift=shift
@@ -266,26 +284,29 @@ class TMapWidget(Tkinter.Canvas):
 			self.refresh=True
 	
 	def getDate(self):
+		""" return the data (string format) linked with the map (for map using date) or the current date of others"""
 		if self.date:
 			return self.date
 		else:
 			return time.strftime("%Y-%m-%d",time.localtime(time.time()-config.default_day_offset))
 	
 	def getShift(self):
+		""" return time shift for map handling timeshift """
 		if self.shift:
 			return self.shift
 		else:
 			return 0
 
 	def idle(self):
-		""" Handle updates : called when idle """
+		""" Handle updates : called when idle by tk GUI (and after __init__) """
 		status=" / work: %d, result: %d" % (self.work_queue.qsize(),self.result_queue.qsize())
 		self.parent.setStatus(status)
 		old_status=self.loading
 		if self.refresh:	# refreah : redraw the offscreen and request a display update
 			self.refreshOffscreen()
 			force_update=True
-			if _debug_idle: print "refresh"
+			if _debug_idle: 
+				print "refresh"
 		else:
 			force_update=False
 #		if self.work_queue.empty():	# work queue empty : no more tiles to process
@@ -307,17 +328,20 @@ class TMapWidget(Tkinter.Canvas):
 			self.loading=False
 		if self.loading!=old_status:	# update loading status
 			force_update=True
-		if _debug_idle: print "\twork:",self.work_queue.qsize(),"\tresult:",self.result_queue.qsize()
+		if _debug_idle: 
+			print "\twork:",self.work_queue.qsize(),"\tresult:",self.result_queue.qsize()
 		if not(self.result_queue.empty()) or force_update:	# if loading or force update : update the map
 			self.updateMap()
-			if _debug_idle: print "update"
+			if _debug_idle: 
+				print "update"
 		self.after(k_frame,self.idle)
 		
 	def refreshOffscreen(self):
 		""" refresh the map : create offscren and launch tiles loading (asynchronous)
 			the offscren contain a "map" and an "overlay" (optionnal)
-			map elements (tiles) are loaded in priority
+			base map elements (tiles) are loaded in priority
 		"""
+		# calculate coordinates for offscreen location and size
 		(x,y)=self.location.convert2Tile(self.zoom)
 		(self.xmin,self.ymin)=(int(x)-self.xdtile,int(y)-self.ydtile)
 		(self.xmax,self.ymax)=(int(x)+self.xdtile,int(y)+self.ydtile)
@@ -338,6 +362,7 @@ class TMapWidget(Tkinter.Canvas):
 			if self.overlayServer:
 				s=s*2
 			self.clock_nb=self.clock_nb+s
+		# fill the task queue with tiles
 		for x in range(self.xmin,self.xmax+1):
 			for y in range(self.ymin,self.ymax+1) :
 				self.work_queue.put((x,y,self.zoom,self.mapServer,self.date,self.shift,self.cache))
@@ -400,28 +425,48 @@ class TMapWidget(Tkinter.Canvas):
 		return map_img
 		
 	def export(self,filename="test.png",zoommod=0):
+		""" do the rendering processing without user intercation 
+			in order to build a big image and export it to a PNG file
+		"""
 		z=self.zoom
-		print "zoom:",z,"zmod:",zoommod
+		if _debug_export:
+			print "zoom:",z,"zmod:",zoommod
 		s=1
 		while zoommod>0:
 			z=z+1
 			s=s+1
 			zoommod=zoommod-1
-		print "zoom:",z,"size:",s
+		if _debug_export:
+			print "zoom:",z,"size:",s
 		map=TMapSimple(self.parent,self.winfo_width()*s,self.winfo_height()*s,self.cache)
 		map.setMapServer(self.mapServer)
 		map.setOverlayServer(self.overlayServer)
 		map.setLocation(self.location,z)
 		map.setDate(self.getDate())
 		map.setShift(self.getShift())
+		map.mapOffscreen._debug_build=True
+		if _debug_chrono:
+			img=map.work_queue.qsize()
+			clk=t=time.clock()
 		map.update()
 		while not(map.ready()):
 			pass
+		if _debug_chrono:
+			clk=time.clock()-clk
+			if clk==0.0:
+				print "no timing, %d image(s)" % img
+			else:
+				print "%d image(s) in %.1f : %.2f fps" % (img,clk,1.0*img/clk)
 		img=map.render()
 		img.save(filename)
-		print "export:",filename
+		if _debug_export:
+			print "export:",filename
 
 class TMapSimple():
+	"""	TMapSimple
+		a simpliest version of TMapWidget without widget part
+		full offscreen for exporting a file
+	"""
 	def __init__(self,window,width=default_win_x,height=default_win_y,cache=None):
 		self.parent=window
 		self.mapOffscreen=bigmap.BigMap()
@@ -445,17 +490,13 @@ class TMapSimple():
 		# create the task queue : 2 queue(s) : work (task to be done) / result (task results)
 		self.work_queue=Queue.Queue()
 		self.result_queue=Queue.Queue()
+		self._debug_queue=False
 		
 	def setMapServer(self,map_server):
 		""" define a new map server and store default (+update zoom) """
 		if self.mapServer!=map_server:
 			self.mapServer=map_server
 			self.setZoom(self.zoom)		# update zoom
-			if self.mapServer:	# store current map into config
-				mapname=self.mapServer.name
-			else:
-				mapname=""
-			self.parent.config.set('MAP',mapname)
 			# update date/timeshift widget according to map and overlay
 			if self.mapServer.handleDate:
 				self.handleDate=True
@@ -480,10 +521,6 @@ class TMapSimple():
 		if self.overlayServer!=overlay_server:
 			self.overlayServer=overlay_server
 			self.setZoom(self.zoom)
-			if self.overlayServer:
-				mapname=self.overlayServer.name
-			else:
-				mapname=""
 			if self.overlayServer and self.overlayServer.handleDate:
 				self.handleDate=True
 			else:
@@ -552,8 +589,9 @@ class TMapSimple():
 				for y in range(self.ymin,self.ymax+1) :
 					self.work_queue.put((x,y,self.zoom,self.overlayServer,self.date,self.shift,self.cache))
 					self.jobs=self.jobs+1
-		print "%d tiles" % self.jobs
-		print "launching : work: %d, result: %d" % (self.work_queue.qsize(),self.result_queue.qsize())
+		if self._debug_queue:
+			print "%d tiles" % self.jobs
+			print "launching : work: %d, result: %d" % (self.work_queue.qsize(),self.result_queue.qsize())
 		# launch the task queue (to retrieve tiles)
 		if (bigmap.config.k_nb_thread>1):		# for asyncrhonous : launch process to handle the queues
 			for i in range(bigmap.config.k_nb_thread):
@@ -568,7 +606,8 @@ class TMapSimple():
 			self.jobs=self.jobs-1
 			self.result_queue.get()
 			self.result_queue.task_done()
-			print "job done : work: %d, result: %d / left: %d" % (self.work_queue.qsize(),self.result_queue.qsize(),self.jobs)
+			if self._debug_queue:
+				print "job done : work: %d, result: %d / left: %d" % (self.work_queue.qsize(),self.result_queue.qsize(),self.jobs)
 #		return self.work_queue.empty() and self.result_queue.empty()
 		return self.jobs<1
 			
