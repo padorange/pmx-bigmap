@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # default value (if no parameters), 
@@ -12,10 +12,10 @@ default_zoom=17
 default_server="osm.default"
 default_day_offset=86400
 
-default_tile_size=256		# most TMS used 256 pixels wide tiles
-max_tiles=300				# maximum tiles per request (to avoid bulk downloads)
-max_errors=0.1				# maximum error rate to build the image
-mem_cache=50				# memory cache size (tiles) for faster rendering (pmx)
+default_tile_size=256				# most TMS used 256 pixels wide tiles
+max_tiles=300						# maximum tiles per request (to avoid bulk downloads)
+max_errors=0.1						# maximum error rate to build the image
+mem_cache=50						# memory cache size (tiles) for faster rendering (pmx)
 
 test_loc0=(-1.15367,46.15582)
 test_loc1=test_loc0
@@ -30,7 +30,7 @@ k_server_timeout=20					# server timeout in seconds
 
 # config files
 _resourcesPath="resources"			# local path for ressources (error images, some icons...)
-_workingdir="bigmap"				# working directory (in user home) for storing data
+_workingdir="bigtilemap"			# working directory (in user home) for storing data
 _cachedir="cache"					# cache directory (in _workingdir)
 api_keys_file="api_key.ini"			# api key list (config file)
 tile_servers_file="servers.ini"		# TMS server liste (config file)
@@ -54,8 +54,8 @@ if not os.path.exists(wrkdir):		# create dir if it does not exist
 # set OS default directory to source directory (for internal in/out files, make launch independant location for files))
 os.chdir(prgdir)
 
-print "default dir", prgdir
-print "data dir", wrkdir
+print("default dir", prgdir)
+print("data dir", wrkdir)
 
 # == Create file paths =======================================
 dbPath=os.path.join(wrkdir,pmx_db_file)
@@ -63,8 +63,8 @@ cachePath=os.path.join(wrkdir,_cachedir)
 api_keys_path=os.path.join(prgdir,api_keys_file)
 tile_servers_path=os.path.join(prgdir,tile_servers_file)
 locations_path=os.path.join(prgdir,locations_file)
-loadingImgPath=os.path.join(prgdir,_resourcesPath,"loading.png")
-urlError=('default','400','401','403','404','timeout')	# file paths for error tiles
+loadingImgPath=os.path.join(prgdir,_resourcesPath,"loading.png")	# file path for the loading logo)
+urlError=('default','400','401','403','404','timeout')				# file paths for error tiles
 errorImgPath={}
 for e in urlError:
 	errorImgPath[e]=os.path.join(prgdir,_resourcesPath,"%s.png" % e)
