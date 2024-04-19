@@ -3,14 +3,12 @@ This project is composed of 2 sub-projects :
 * pmx.py, a GUI interface to explore maps and made fixed map ready to print
 * bigtilemap.py, a CLI interface to do the same
 
-Licence : New-BSD Licence, (c) 2010-2022, Pierre-Alain Dorange
+Licence : New-BSD Licence, (c) 2010-2024, Pierre-Alain Dorange
 
 Liens :
 
 * git : https://github.com/padorange/pmx-bigmap
 * web : http://www.leretourdelautruche.com/pmwiki/index.php/Autruche/BigMap
-
--
 
 This project has for purpose to allow end-user to use maps from web services using a CLI or GUI interface (no HTML, no Javascript). Mostly OpenStreetMap maps.
 
@@ -43,15 +41,11 @@ pmx.py (GUI)
 
 pmx.py is an application to explore maps using online TMS services.
 It was build upon bigtilemap.py library (see below). 
-It use Tkinter standard cross-platform for GUI and PIL/Pillow for image handling.
+It use Tkinter for Python (standard cross-platform) as GUI and PIL/Pillow for image handling.
 
-pmx.py display tiles assembled (like online map server), user can browse different server 
-and overlay, search geographic locations and export curent map.
+pmx.py display tiles assembled (like online map server), user can browse different servers and overlays, search geographic locations and export maps.
 
-pmx.py require :
-	Python 3.x
-	Tkinter library for Python (often already include with default Python)
-	Pillow (ex PIL) library for Python, handles images (PNG, JPEG...)
+pmx.py require : Python 3.x, Tkinter library for Python (often already include with default Python) and Pillow (ex PIL) library for Python, handles images (PNG, JPEG...)
 
 -- usage ------------------------------------------------------------------------------------
 
@@ -147,8 +141,6 @@ Colorful Grand Prismatic Spring (USA), satellites :
 
 	python3 bigtilemap.py -ncolorful
 
-*
-
 -- Notes ----------------------------------------------------------------------------------
 
 bigtilemap/pmx support many Tile Map Servers (TMS) or slippy map, to have a detailed list (with licence and zoom available) :
@@ -166,17 +158,6 @@ meaning :
 
 To respect those recommendations, bigtilemap/pmx use a local cache and do not allow for request over 300 tiles per request.
 
-Please respect those usage policy and do not change those parameters. 
-Disrespect for usage policy often lead to be banned from TMS.
-Be banned from TMS service was made regarding User-Agent referer, so if you're banned, all bigtilemap/pmx users will be also banned.
-
-Cache :
-
-bigtilemap.py use a local cache to store individual tiles, if you need to refresh local data, simply trash to cache folder or use -c option (reset cache)
-Cache folder can rapidly became big and occupy lot of space on your hard-drive.
-The actual cache size if displayed at each run and is limited by k_cache_max_size parameter (default is 100 MB).
-Tile are consider up-to-date for k_cache_delay seconds (default is 96 hours)
-
 Parameters :
 
 Main parameters are defined into config.py file.
@@ -185,7 +166,6 @@ Main parameters are defined into config.py file.
 
 Use it with respect to Tile Server usage policy : do not download large area at high zoom and do not use it too often.
 Remember tile servers are not intend for local usage but for online browser usage.
-
 Do not forget to clearly display licence on final map/usage :
 	for osm : <http://www.openstreetmap.org/copyright>
 
@@ -252,10 +232,8 @@ Detailed information about Nominatim :
 Nominatim better work with request build from left to right using detail (left) and country (right).
 Using comma improve performance (making query less complex).
 
-A good example : 12 baker street, london, england
-
-Poor example (but works) : baker street
-
+A good example : "12 baker street, london, england"
+Poor example (but works) : "baker street"
 bad example : baker
 
 -- Configuration --------------------------------------------------------------------------------
@@ -275,5 +253,5 @@ pmx/bigtilemap store user data in the default system user directory (home) :
 -- End note -------------------------------------------------------------------------------------
 
 Thanks to all OpenStreetMap contributors for the data, software and services provided
-Thanks for Guido van Rossum for inventing Python and to the "Monty Python Flying Circus" to inspire it
+Thanks for Guido van Rossum for inventing Python and to the "Monty Python Flying Circus" to inspire him.
 
