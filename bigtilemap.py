@@ -1,21 +1,17 @@
 #! /usr/bin/python3
 # -*- coding: utf-8 -*-
 
-# python 3 préparation (future)
-#from __future__ import print_function
-#from __future__ import division
-
 __application__=__file__.split('/')[-1]		# get name of this python source file
-__version__="1.0b4"
+__version__="1.0b5"
 __license__="New BSD"		# see https://en.wikipedia.org/wiki/BSD_licenses
-__copyright__="Copyright 2010-2022, Pierre-Alain Dorange"
+__copyright__="Copyright 2010-2024, Pierre-Alain Dorange"
 __author__="Pierre-Alain Dorange"
 __contact__="pdorange@mac.com"
 
 # debug tags
 _debug=False# debug mode (verbose)
 _debug_thread=False
-_debug_config=True
+_debug_config=False
 _compute=False			# display computed tiles coordinates (conversions from longitude/latitude to pixels)
 _chrono=False
 

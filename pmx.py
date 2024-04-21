@@ -25,7 +25,7 @@ See bigtilemap.py for detail on TMS downloads.
 	Pillow (ex. PIL) Library : <https://python-pillow.org/>
 	
 -- Licences ----------------------------------------------------------------------------
-	New-BSD Licence, (c) 2010-2022 Pierre-Alain Dorange
+	New-BSD Licence, (c) 2010-2024 Pierre-Alain Dorange
 	
 -- References --------------------------------------------------------------------------
 	See reference section in bigtilemap.py
@@ -55,9 +55,12 @@ See bigtilemap.py for detail on TMS downloads.
 		GUI :	+/- buttons now are the same size
 				doubleclic : now recenter AND zoom in
 				handle mousewheel for linux
+	1.0b1
+		clean server.ini
+		push version to github
 	To do :
 		optimize download :
-			respect 2 threads but per server (allow more for other servers)
+			respect 2 threads but per server (can allow more for other servers)
 			optimize url error (one stop the others ?)
 			when server changed, stop the old-current threads
 		better GUI :
@@ -65,6 +68,8 @@ See bigtilemap.py for detail on TMS downloads.
 			think of a new lists for browse through servers
 		better handling for download error (server, 403. 404...)
 		study replacing servers.ini with a MySQL databse and permit an offline update ?
+		better overlay handling by using a transparency and multiplication
+		better handling a chrono tile load
 """
 # == Standard Library =======================================
 import os,sys,time
@@ -93,7 +98,7 @@ import config
 
 # debug tags
 _debug_sql=False
-_chrono_map=True
+_chrono_map=False
 
 # == Code ====================================================
 

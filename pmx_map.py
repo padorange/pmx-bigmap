@@ -11,7 +11,7 @@ See pmx.py for licence and usage details
 _debug_idle=False
 _debug_gui=False
 _debug_coord=False
-_debug_chrono=True
+_debug_chrono=False
 _debug_offscreen=False
 _debug_export=False
 
@@ -284,7 +284,6 @@ class TMapWidget(tkinter.Canvas):
 			z=zmax
 		else:
 			z=zoom
-		print("zoom:",self.zoom,">",z)
 		if z!=self.zoom:	# set new zoom and update config
 			self.zoom=z
 			self.parent.setZoomText("z=%d" % self.zoom)
